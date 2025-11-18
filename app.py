@@ -193,7 +193,7 @@ if DEFAULT_LOGO.exists():
 
 # centered header logo
 if logo_path and logo_path.exists():
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1, 0.5, 1])
     with col2:
         st.image(str(logo_path), width=150)
 # title after logo
