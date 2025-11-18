@@ -175,7 +175,7 @@ if DEFAULT_LOGO.exists():
 
 # show centered header logo on site (does NOT get added to PDFs)
 if site_logo_path and site_logo_path.exists():
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1, 0.5, 1])
     with col2:
         st.image(str(site_logo_path), width=150)
 st.title("Certificate Generator — QUALIFIED & PARTICIPATED")
