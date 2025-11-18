@@ -185,11 +185,6 @@ def image_to_pdf_bytes(img: Image.Image):
     return out.read()
 
 # ---------- UI: Header logo (centered) ----------
-# Show logo from repo root if present
-logo_path = None
-if DEFAULT_LOGO.exists():
-    logo_path = DEFAULT_LOGO
-
 # centered header logo
 if logo_path and logo_path.exists():
     col1, col2, col3 = st.columns([1, 2, 1])
