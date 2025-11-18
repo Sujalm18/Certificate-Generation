@@ -3,4 +3,5 @@ pandas
 reportlab
 PyPDF2
 PyMuPDF
+Pillow
 openpyxl
