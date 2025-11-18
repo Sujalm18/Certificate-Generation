@@ -18,17 +18,11 @@ BASE_DIR = Path(__file__).parent
 
 
 # ---------- Logo on the website ----------
-# --- show repo logo (centered) if present ---
-default_logo = BASE_DIR / "logo.png"   # must match file name exactly (case-sensitive)
-
-logo_path_ui = default_logo if default_logo.exists() else None
-
-if logo_path_ui:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.image(str(logo_path_ui), width=100, use_column_width=False)
-else:
-    st.info("logo.png not found in repo root. Upload it or place next to app.py.")
+st.set_page_config(layout="centered")
+col1, col2, col3 = st.columns([1, 0.5, 1])
+with col2:
+    st.image("logo.png", width=200)
+st.title("PHN Scholar Exam OMR Generation")
 
 
 # ---------- Config ----------
