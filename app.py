@@ -27,7 +27,6 @@ DEFAULT_MAX_TEXT_WIDTH_CM = 16.0
 DEFAULT_QUAL = BASE_DIR / "phnscholar qualified certificate.pdf"
 DEFAULT_PART = BASE_DIR / "phnscholar participation certificate.pdf"
 DEFAULT_TTF = BASE_DIR / "Times New Roman Italic.ttf"
-DEFAULT_LOGO = BASE_DIR / "logo.png"
 
 OUT_DIR = BASE_DIR / "output"
 OUT_DIR.mkdir(exist_ok=True)
