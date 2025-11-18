@@ -1,29 +1,46 @@
+# app.py
 import streamlit as st
-import pandas as pd
-import os, re, zipfile
-from io import BytesIO
 from pathlib import Path
+from io import BytesIO
+import zipfile
+import pandas as pd
+import math
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import landscape, A4
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from PyPDF2 import PdfReader, PdfWriter
+import fitz  # PyMuPDF
+from PIL import Image, ImageDraw, ImageFont
 
-# ----------------- Config / defaults -----------------
-DATA_DIR = Path(".")
-DEFAULT_QUAL_PDF = "phnscholar qualified certificate.pdf"
-DEFAULT_PART_PDF = "phnscholar participation certificate.pdf"
-DEFAULT_TTF = "Times New Roman Italic.ttf"  # place your TTF here if available
-OUTPUT_DIR = "cert_output"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# ---------- Config ----------
+st.set_page_config(page_title="Certificate Generator", layout="wide")
+st.title("Certificate Generator — QUALIFIED & PARTICIPATED")
 
-# ----------------- Helpers -----------------
-def safe_filename(s):
-    s = str(s)
-    s = re.sub(r'[\\/*?:"<>|]', "_", s)
-    s = re.sub(r'\s+', '_', s)
-    return s[:200]
+BASE_DIR = Path.cwd()
+OUT_DIR = BASE_DIR / "output"
+OUT_DIR.mkdir(exist_ok=True)
+
+# Defaults as requested
+DEFAULT_X_CM = 10.46
+DEFAULT_Y_CM = 16.50
+DEFAULT_FONT_SIZE = 16
+DEFAULT_MAX_TEXT_WIDTH_CM = 16.0
+
+# Default repo-file names (optional: place in repo or upload via UI)
+DEFAULT_QUAL = BASE_DIR / "phnscholar qualified certificate.pdf"
+DEFAULT_PART = BASE_DIR / "phnscholar participation certificate.pdf"
+DEFAULT_TTF = BASE_DIR / "Times New Roman Italic.ttf"
+
+# ---------- Helpers ----------
+def register_ttf_if_present(ttf_path: Path):
+    if ttf_path and ttf_path.exists():
+        try:
+            pdfmetrics.registerFont(TTFont("UserTime", str(ttf_path)))
+            return "UserTime"
+        except Exception:
+            return "Times-Italic"
+    return "Times-Italic"
 
 def get_first_name_column(df):
     for col in df.columns:
@@ -31,194 +48,257 @@ def get_first_name_column(df):
             return col
     return None
 
-def make_overlay_pdf(name, page_width_pt, page_height_pt, x_cm, y_cm, font_name, font_size_pt):
-    buf = BytesIO()
-    c = canvas.Canvas(buf, pagesize=(page_width_pt, page_height_pt))
+def scaled_font_size(name, font_name, desired_size_pt, max_width_cm, min_font_size=8):
+    width_pt = pdfmetrics.stringWidth(str(name), font_name, desired_size_pt)
+    max_width_pt = max_width_cm * cm
+    if width_pt <= max_width_pt:
+        return desired_size_pt
+    scale = max_width_pt / width_pt
+    new_size = max(min_font_size, int(desired_size_pt * scale))
+    return new_size
+
+def make_overlay_pdf_bytes(name, page_w_pt, page_h_pt, x_cm, y_cm, font_name, font_size_pt):
+    packet = BytesIO()
+    c = canvas.Canvas(packet, pagesize=(page_w_pt, page_h_pt))
     c.setFont(font_name, font_size_pt)
     x_pt = x_cm * cm
     y_pt = y_cm * cm
     c.drawCentredString(x_pt, y_pt, str(name).strip())
     c.save()
-    buf.seek(0)
-    return buf
+    packet.seek(0)
+    return packet
 
-def overlay_template_with_names(template_pdf_path, names_list, out_pdf_path, x_cm, y_cm, font_size_pt, font_name):
-    reader = PdfReader(str(template_pdf_path))
-    if len(reader.pages) == 0:
-        raise ValueError("Template PDF has no pages")
+def merge_overlay(template_path: Path, overlay_buf: BytesIO):
+    reader_fresh = PdfReader(str(template_path))
+    overlay_reader = PdfReader(overlay_buf)
+    base = reader_fresh.pages[0]
+    base.merge_page(overlay_reader.pages[0])
     writer = PdfWriter()
-    # get page size from first page
-    mediabox = reader.pages[0].mediabox
-    page_width_pt = float(mediabox.width)
-    page_height_pt = float(mediabox.height)
-    for name in names_list:
-        overlay_buf = make_overlay_pdf(name, page_width_pt, page_height_pt, x_cm, y_cm, font_name, font_size_pt)
-        overlay_reader = PdfReader(overlay_buf)
-        overlay_page = overlay_reader.pages[0]
-        # re-read template fresh to avoid in-place merge reuse issues
-        reader_fresh = PdfReader(str(template_pdf_path))
-        base = reader_fresh.pages[0]
-        base.merge_page(overlay_page)
-        writer.add_page(base)
-    with open(out_pdf_path, "wb") as f:
-        writer.write(f)
-    return out_pdf_path
+    writer.add_page(base)
+    out = BytesIO()
+    writer.write(out)
+    out.seek(0)
+    return out
 
-# ----------------- Streamlit UI -----------------
-st.set_page_config(page_title="Certificate overlay - QUALIFIED/PARTICIPATED", layout="centered")
-st.title("Certificate Generator — QUALIFIED & PARTICIPATED")
+def render_pdf_to_png_bytes(pdf_bytes: bytes, dpi=150):
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    page = doc.load_page(0)
+    pix = page.get_pixmap(dpi=dpi)
+    return pix.tobytes("png")
 
-st.markdown("""
-Upload an Excel file that contains two sheets named **QUALIFIED** and **PARTICIPATED** (case-insensitive).
-Each sheet should contain one column of student names (header can be any text).  
-You can either place your template PDFs and TTF in the project folder or upload them below.
-""")
+# Raster utilities (guaranteed visible)
+def render_page_to_image(pdf_path: Path, dpi=300):
+    doc = fitz.open(str(pdf_path))
+    page = doc.load_page(0)
+    pix = page.get_pixmap(dpi=dpi, alpha=False)
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    mediabox = page.mediabox
+    page_w_pt = float(mediabox.width)
+    page_h_pt = float(mediabox.height)
+    return img, page_w_pt, page_h_pt
 
-# Excel upload
-excel_file = st.file_uploader("Upload Excel file (.xlsx/.xls) with sheets QUALIFIED and PARTICIPATED", type=["xlsx","xls"])
+def draw_name_on_image(img: Image.Image, name: str, x_cm_val, y_cm_val, page_w_pt, page_h_pt, font_path=None, font_size_pt=16, dpi=300):
+    px_per_pt = img.width / page_w_pt
+    x_pt = x_cm_val * 28.3464567
+    y_pt = y_cm_val * 28.3464567
+    x_px = x_pt * px_per_pt
+    y_px_from_bottom = y_pt * px_per_pt
+    y_px = img.height - y_px_from_bottom
 
-# Optional template PDF uploads (override defaults)
-st.write("If you don't upload templates, the app will use files in the script folder named:")
-st.write(f"- Qualified template: `{DEFAULT_QUAL_PDF}`") 
-st.write(f"- Participated template: `{DEFAULT_PART_PDF}`")
-qual_pdf_upload = st.file_uploader("Qualified template PDF (optional)", type=["pdf"])
-part_pdf_upload = st.file_uploader("Participated template PDF (optional)", type=["pdf"])
+    draw = ImageDraw.Draw(img)
+    # load font: convert pt -> px
+    try:
+        if font_path and Path(font_path).exists():
+            font_px = int(round(font_size_pt * dpi / 72.0))
+            font = ImageFont.truetype(str(font_path), size=font_px)
+        else:
+            font = ImageFont.load_default()
+    except Exception:
+        font = ImageFont.load_default()
 
-# Optional TTF upload (Times New Roman Italic) or fallback
-st.write("Optional: upload Times New Roman Italic TTF (exact matching font). If not provided, built-in Times-Italic is used.")
-ttf_upload = st.file_uploader("Upload TTF (optional)", type=["ttf","otf"])
+    # measure text using bbox (works with Pillow >=10)
+    try:
+        bbox = draw.textbbox((0, 0), name, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+    except Exception:
+        text_w, text_h = font.getsize(name)
 
-# Sidebar controls for positioning & font
-st.sidebar.header("Name position & font (cm / pt)")
-x_cm = st.sidebar.number_input("Horizontal center (x cm)", value=14.85, step=0.1,
-                               help="Horizontal center position in cm (from left). Default centers on A4 landscape.")
-y_cm_qual = st.sidebar.number_input("Qualified name vertical (y cm)", value=11.0, step=0.1)
-y_cm_part = st.sidebar.number_input("Participated name vertical (y cm)", value=11.0, step=0.1)
-font_size = st.sidebar.number_input("Font size (pt)", value=16, step=1)
-# font selection will include registered TTF or built-in fallback
-font_choice = st.sidebar.selectbox("Font fallback", options=["Times-Italic","Helvetica-Bold","Times-Roman"])
+    # autoscale if too wide
+    max_w = img.width * 0.75
+    if text_w > max_w:
+        scale = max_w / text_w
+        new_font_px = max(8, int(font.size * scale))
+        try:
+            if font_path and Path(font_path).exists():
+                font = ImageFont.truetype(str(font_path), size=new_font_px)
+            else:
+                font = ImageFont.load_default()
+        except:
+            font = ImageFont.load_default()
+        try:
+            bbox = draw.textbbox((0, 0), name, font=font)
+            text_w = bbox[2] - bbox[0]; text_h = bbox[3] - bbox[1]
+        except:
+            text_w, text_h = font.getsize(name)
 
-# Save uploaded files to disk (if uploaded) or use defaults
-if qual_pdf_upload:
-    qual_pdf_path = Path("qualified_uploaded.pdf")
-    with open(qual_pdf_path, "wb") as f:
-        f.write(qual_pdf_upload.getbuffer())
+    draw_x = int(round(x_px - text_w/2.0))
+    draw_y = int(round(y_px - text_h/2.0))
+
+    # outline + fill
+    outline = "white"; fill = "black"
+    for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+        draw.text((draw_x+dx, draw_y+dy), name, font=font, fill=outline)
+    draw.text((draw_x, draw_y), name, font=font, fill=fill)
+    return img
+
+def image_to_pdf_bytes(img: Image.Image):
+    out = BytesIO()
+    img_rgb = img.convert("RGB")
+    img_rgb.save(out, format="PDF")
+    out.seek(0)
+    return out.read()
+
+# ---------- UI: Uploads ----------
+st.markdown("### 1) Upload files (Excel must contain sheets QUALIFIED & PARTICIPATED)")
+excel_file = st.file_uploader("Upload Excel (.xlsx/.xls)", type=["xlsx","xls"])
+qual_upload = st.file_uploader("Qualified template PDF (optional)", type=["pdf"])
+part_upload = st.file_uploader("Participated template PDF (optional)", type=["pdf"])
+ttf_upload = st.file_uploader("Times New Roman Italic TTF (optional)", type=["ttf","otf"])
+
+# choose raster or vector overlay
+rasterize = st.sidebar.checkbox("Rasterize output (recommended if names are invisible in some viewers)", value=True)
+
+# set template paths (in-memory writes if uploaded)
+if qual_upload:
+    qual_path = BASE_DIR / "qual_uploaded.pdf"
+    qual_path.write_bytes(qual_upload.getbuffer())
 else:
-    qual_pdf_path = Path(DEFAULT_QUAL_PDF)
+    qual_path = DEFAULT_QUAL if DEFAULT_QUAL.exists() else None
 
-if part_pdf_upload:
-    part_pdf_path = Path("participated_uploaded.pdf")
-    with open(part_pdf_path, "wb") as f:
-        f.write(part_pdf_upload.getbuffer())
+if part_upload:
+    part_path = BASE_DIR / "part_uploaded.pdf"
+    part_path.write_bytes(part_upload.getbuffer())
 else:
-    part_pdf_path = Path(DEFAULT_PART_PDF)
+    part_path = DEFAULT_PART if DEFAULT_PART.exists() else None
 
 if ttf_upload:
-    ttf_path = Path("uploaded_times_italic.ttf")
-    with open(ttf_path, "wb") as f:
-        f.write(ttf_upload.getbuffer())
-elif Path(DEFAULT_TTF).exists():
-    ttf_path = Path(DEFAULT_TTF)
+    ttf_path = BASE_DIR / "uploaded_times.ttf"
+    ttf_path.write_bytes(ttf_upload.getbuffer())
+elif DEFAULT_TTF.exists():
+    ttf_path = DEFAULT_TTF
 else:
     ttf_path = None
 
-# Register font if TTF present, else fallback to Times-Italic
-registered_font_name = None
-if ttf_path and ttf_path.exists():
-    try:
-        pdfmetrics.registerFont(TTFont("TimesNewRomanItalicUser", str(ttf_path)))
-        registered_font_name = "TimesNewRomanItalicUser"
-        st.sidebar.success(f"Registered font from {ttf_path.name}")
-    except Exception as e:
-        st.sidebar.warning(f"Failed to register TTF: {e}. Using fallback.")
-        registered_font_name = font_choice
-else:
-    registered_font_name = font_choice
+if not excel_file:
+    st.info("Upload Excel to enable generation. You can still preview templates below.")
 
-# Generate button
-if st.button("Generate certificates (Overlay)"):
-    if excel_file is None:
-        st.error("Please upload the Excel file with QUALIFIED and PARTICIPATED sheets.")
+# ---------- UI: Position sliders & preview ----------
+st.sidebar.header("Position & font settings")
+x_cm = st.sidebar.number_input("X (cm from left)", value=DEFAULT_X_CM, format="%.2f", step=0.01)
+y_cm = st.sidebar.number_input("Y (cm from bottom)", value=DEFAULT_Y_CM, format="%.2f", step=0.01)
+font_size_pt = st.sidebar.number_input("Base font size (pt)", value=DEFAULT_FONT_SIZE, step=1)
+max_text_width_cm = st.sidebar.number_input("Max name width (cm) for autoscale", value=DEFAULT_MAX_TEXT_WIDTH_CM, step=0.5)
+
+font_name = register_ttf_if_present(Path(ttf_path) if ttf_path else None)
+st.sidebar.write("Font used:", font_name)
+
+st.markdown("### 2) Preview (live) — adjust X / Y / size until perfect")
+preview_choice = st.selectbox("Preview template", options=["QUALIFIED", "PARTICIPATED"])
+template_for_preview = qual_path if preview_choice=="QUALIFIED" else part_path
+
+if template_for_preview and Path(template_for_preview).exists():
+    sample_name = st.text_input("Sample name for preview", "Aarav Sharma")
+    reader = PdfReader(str(template_for_preview))
+    mediabox = reader.pages[0].mediabox
+    page_w_pt = float(mediabox.width)
+    page_h_pt = float(mediabox.height)
+
+    # For preview, either merge vector overlay or render raster preview depending on toggle
+    if not rasterize:
+        fs_preview = scaled_font_size(sample_name, font_name, font_size_pt, max_text_width_cm)
+        overlay_buf = make_overlay_pdf_bytes(sample_name, page_w_pt, page_h_pt, x_cm, y_cm, font_name, fs_preview)
+        merged = merge_overlay(template_for_preview, overlay_buf)
+        png = render_pdf_to_png_bytes(merged.read(), dpi=150)
+        st.image(png, use_column_width=True, caption="Preview merged certificate (vector overlay)")
+    else:
+        img, page_w_pt, page_h_pt = render_page_to_image(template_for_preview, dpi=300)
+        img_w_name = draw_name_on_image(img.copy(), sample_name, x_cm, y_cm, page_w_pt, page_h_pt, font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
+        png_buf = BytesIO()
+        img_w_name.save(png_buf, format="PNG")
+        st.image(png_buf.getvalue(), use_column_width=True, caption="Preview rasterized certificate")
+else:
+    st.warning("Template not found. Upload a template PDF or place the default template file in the app folder.")
+
+# ---------- UI: Generate ZIP ----------
+st.markdown("### 3) Generate and download final ZIP")
+if st.button("Generate certificates ZIP"):
+    if not excel_file:
+        st.error("Upload Excel with QUALIFIED & PARTICIPATED sheets before generating.")
+        st.stop()
+    if not (qual_path and Path(qual_path).exists()):
+        st.error("Qualified template missing. Upload it or add it to the repo.")
+        st.stop()
+    if not (part_path and Path(part_path).exists()):
+        st.error("Participated template missing. Upload it or add it to the repo.")
         st.stop()
 
-    # Read Excel
     try:
         xls = pd.ExcelFile(excel_file)
     except Exception as e:
-        st.error(f"Failed to read Excel: {e}")
+        st.error(f"Cannot read Excel: {e}")
         st.stop()
 
-    # case-insensitive sheet name mapping
     sheets_map = {name.strip().upper(): name for name in xls.sheet_names}
-    required = ["QUALIFIED", "PARTICIPATED"]
-    missing = [s for s in required if s not in sheets_map]
+    missing = [s for s in ("QUALIFIED","PARTICIPATED") if s not in sheets_map]
     if missing:
-        st.error(f"Missing sheet(s): {missing}. Please ensure the Excel contains sheets named QUALIFIED and PARTICIPATED.")
+        st.error(f"Missing sheets in Excel: {missing}")
         st.stop()
 
-    progress = st.progress(0)
-    generated_files = []
-    total_steps = 2
-    step = 0
+    df_q = pd.read_excel(xls, sheet_name=sheets_map["QUALIFIED"], dtype=object)
+    df_p = pd.read_excel(xls, sheet_name=sheets_map["PARTICIPATED"], dtype=object)
 
-    # Process QUALIFIED
-    st.info("Processing QUALIFIED sheet...")
-    q_actual = sheets_map["QUALIFIED"]
-    df_q = pd.read_excel(xls, sheet_name=q_actual, dtype=object)
-    name_col_q = get_first_name_column(df_q)
-    if not name_col_q or df_q[name_col_q].dropna().empty:
-        st.warning("QUALIFIED sheet is empty or has no names - skipping.")
-    else:
-        names_q = df_q[name_col_q].dropna().astype(str).tolist()
-        out_q = Path(OUTPUT_DIR) / "QUALIFIED.pdf"
-        try:
-            overlay_template_with_names(qual_pdf_path, names_q, out_q, x_cm, y_cm_qual, font_size, registered_font_name)
-            generated_files.append(out_q)
-            st.success(f"QUALIFIED PDF created ({len(names_q)} names).")
-        except Exception as e:
-            st.error(f"Failed QUALIFIED generation: {e}")
+    # Prepare ZIP buffer
+    zip_buf = BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # QUALIFIED
+        col_q = get_first_name_column(df_q)
+        if col_q:
+            for nm in df_q[col_q].dropna().astype(str):
+                nm_clean = str(nm).strip()
+                if not rasterize:
+                    fs = scaled_font_size(nm_clean, font_name, font_size_pt, max_text_width_cm)
+                    reader = PdfReader(str(qual_path))
+                    mediabox = reader.pages[0].mediabox
+                    page_w = float(mediabox.width); page_h = float(mediabox.height)
+                    overlay_buf = make_overlay_pdf_bytes(nm_clean, page_w, page_h, x_cm, y_cm, font_name, fs)
+                    merged = merge_overlay(qual_path, overlay_buf)
+                    zf.writestr(f"QUALIFIED/{nm_clean}.pdf", merged.read())
+                else:
+                    img, page_w_pt, page_h_pt = render_page_to_image(qual_path, dpi=300)
+                    img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt, font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
+                    pdf_bytes = image_to_pdf_bytes(img_w_name)
+                    zf.writestr(f"QUALIFIED/{nm_clean}.pdf", pdf_bytes)
 
-    step += 1
-    progress.progress(int(step/total_steps*100))
+        # PARTICIPATED
+        col_p = get_first_name_column(df_p)
+        if col_p:
+            for nm in df_p[col_p].dropna().astype(str):
+                nm_clean = str(nm).strip()
+                if not rasterize:
+                    fs = scaled_font_size(nm_clean, font_name, font_size_pt, max_text_width_cm)
+                    reader = PdfReader(str(part_path))
+                    mediabox = reader.pages[0].mediabox
+                    page_w = float(mediabox.width); page_h = float(mediabox.height)
+                    overlay_buf = make_overlay_pdf_bytes(nm_clean, page_w, page_h, x_cm, y_cm, font_name, fs)
+                    merged = merge_overlay(part_path, overlay_buf)
+                    zf.writestr(f"PARTICIPATED/{nm_clean}.pdf", merged.read())
+                else:
+                    img, page_w_pt, page_h_pt = render_page_to_image(part_path, dpi=300)
+                    img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt, font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
+                    pdf_bytes = image_to_pdf_bytes(img_w_name)
+                    zf.writestr(f"PARTICIPATED/{nm_clean}.pdf", pdf_bytes)
 
-    # Process PARTICIPATED
-    st.info("Processing PARTICIPATED sheet...")
-    p_actual = sheets_map["PARTICIPATED"]
-    df_p = pd.read_excel(xls, sheet_name=p_actual, dtype=object)
-    name_col_p = get_first_name_column(df_p)
-    if not name_col_p or df_p[name_col_p].dropna().empty:
-        st.warning("PARTICIPATED sheet is empty or has no names - skipping.")
-    else:
-        names_p = df_p[name_col_p].dropna().astype(str).tolist()
-        out_p = Path(OUTPUT_DIR) / "PARTICIPATED.pdf"
-        try:
-            overlay_template_with_names(part_pdf_path, names_p, out_p, x_cm, y_cm_part, font_size, registered_font_name)
-            generated_files.append(out_p)
-            st.success(f"PARTICIPATED PDF created ({len(names_p)} names).")
-        except Exception as e:
-            st.error(f"Failed PARTICIPATED generation: {e}")
-
-    step += 1
-    progress.progress(int(step/total_steps*100))
-
-    if not generated_files:
-        st.error("No PDF files were generated.")
-        st.stop()
-
-    # create ZIP in-memory
-    zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in generated_files:
-            zf.write(p, p.name)
-    zip_buffer.seek(0)
-
-    # optional: cleanup generated pdfs on disk
-    for p in generated_files:
-        try:
-            os.remove(p)
-        except:
-            pass
-
-    st.success("Certificates generated. Download the ZIP below.")
-    st.download_button("Download certificates ZIP", data=zip_buffer.getvalue(),
-                       file_name="certificates_two_sheets.zip", mime="application/zip")
+    zip_buf.seek(0)
+    st.success("Certificates ZIP ready.")
+    st.download_button("Download certificates ZIP", data=zip_buf.getvalue(), file_name="certificates_streamlit.zip", mime="application/zip")
