@@ -26,7 +26,7 @@ logo_path_ui = default_logo if default_logo.exists() else None
 if logo_path_ui:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.image(str(logo_path_ui), width=220, use_column_width=False)
+        st.image(str(logo_path_ui), width=100, use_column_width=False)
 else:
     st.info("logo.png not found in repo root. Upload it or place next to app.py.")
 
