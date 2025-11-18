@@ -193,7 +193,7 @@ if DEFAULT_LOGO.exists():
 
 # centered header logo
 if logo_path and logo_path.exists():
-    col1, col2, col3 = st.columns([1, 0.5, 1])
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.image(str(logo_path), width=150)
 # title after logo
@@ -277,14 +277,19 @@ st.markdown("### 3) Generate and download final ZIP")
 st.write("Export options:")
 col_a, col_b, col_c = st.columns([1,1,6])
 with col_a:
-    gen_qualified = st.checkbox("Generate QUALIFIED", value=True)
+    gen_qualified = st.checkbox("Generate QUALIFIED", value=False)
 with col_b:
-    gen_participated = st.checkbox("Generate PARTICIPATED", value=True)
+    gen_participated = st.checkbox("Generate PARTICIPATED", value=False)
 with col_c:
     st.caption("Select which certificates to include in the ZIP. Uncheck to exclude a group.")
 
 # ---------- Generation logic ----------
 if st.button("Generate certificates ZIP"):
+    # Funny message if neither checkbox is selected
+    if not gen_qualified and not gen_participated:
+        st.error("I swear the button works… once you pick something 😆")
+        st.stop()
+
     if not excel_file:
         st.error("Please upload Excel with QUALIFIED and PARTICIPATED sheets.")
         st.stop()
