@@ -15,7 +15,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 # ---------- Basic setup ----------
 st.set_page_config(page_title="Certificate Generator", layout="wide")
-# define BASE_DIR early so Streamlit Cloud pathing works
 BASE_DIR = Path(__file__).parent
 
 # ---------- Defaults ----------
@@ -27,6 +26,7 @@ DEFAULT_MAX_TEXT_WIDTH_CM = 16.0
 DEFAULT_QUAL = BASE_DIR / "phnscholar qualified certificate.pdf"
 DEFAULT_PART = BASE_DIR / "phnscholar participation certificate.pdf"
 DEFAULT_TTF = BASE_DIR / "Times New Roman Italic.ttf"
+DEFAULT_LOGO = BASE_DIR / "logo.png"  # used on site header only
 
 OUT_DIR = BASE_DIR / "output"
 OUT_DIR.mkdir(exist_ok=True)
@@ -51,7 +51,6 @@ def scaled_font_size(name, font_name, desired_size_pt, max_width_cm, min_font_si
     try:
         width_pt = pdfmetrics.stringWidth(str(name), font_name, desired_size_pt)
     except Exception:
-        # fallback width estimate if font not registered for PDF text
         width_pt = len(str(name)) * desired_size_pt * 0.5
     max_width_pt = max_width_cm * cm
     if width_pt <= max_width_pt:
@@ -89,7 +88,7 @@ def render_pdf_to_png_bytes(pdf_bytes: bytes, dpi=150):
     pix = page.get_pixmap(dpi=dpi)
     return pix.tobytes("png")
 
-# Raster utilities
+# Raster utilities (NO logo usage for PDF)
 def render_page_to_image(pdf_path: Path, dpi=300):
     doc = fitz.open(str(pdf_path))
     page = doc.load_page(0)
@@ -101,10 +100,11 @@ def render_page_to_image(pdf_path: Path, dpi=300):
     return img, page_w_pt, page_h_pt
 
 def draw_name_on_image(img: Image.Image, name: str, x_cm_val, y_cm_val, page_w_pt, page_h_pt,
-                       font_path=None, font_size_pt=16, dpi=300, logo_path: Path = None):
-    # px per point mapping
+                       font_path=None, font_size_pt=16, dpi=300):
+    """
+    Draws name onto the image. NOTE: This version does NOT draw any logos.
+    """
     px_per_pt = img.width / page_w_pt
-    # convert cm -> points (1 cm = 28.3464567 pt)
     x_pt = x_cm_val * 28.3464567
     y_pt = y_cm_val * 28.3464567
     x_px = x_pt * px_per_pt
@@ -123,7 +123,7 @@ def draw_name_on_image(img: Image.Image, name: str, x_cm_val, y_cm_val, page_w_p
     except Exception:
         font = ImageFont.load_default()
 
-    # measure with bbox for Pillow >= 10
+    # measure text
     try:
         bbox = draw.textbbox((0, 0), name, font=font)
         text_w = bbox[2] - bbox[0]
@@ -152,28 +152,11 @@ def draw_name_on_image(img: Image.Image, name: str, x_cm_val, y_cm_val, page_w_p
     draw_x = int(round(x_px - text_w / 2.0))
     draw_y = int(round(y_px - text_h / 2.0))
 
-    # draw outline + fill for visibility
+    # draw outline + fill
     outline = "white"; fill = "black"
     for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
         draw.text((draw_x+dx, draw_y+dy), name, font=font, fill=outline)
     draw.text((draw_x, draw_y), name, font=font, fill=fill)
-
-    # draw logo if provided (centered above the name)
-    if logo_path and Path(logo_path).exists():
-        try:
-            logo_img = Image.open(str(logo_path)).convert("RGBA")
-            # scale logo to 20% of page width by default
-            max_logo_width = int(img.width * 0.20)
-            ratio = logo_img.width / logo_img.height if logo_img.height != 0 else 1
-            logo_img = logo_img.resize((max_logo_width, int(max_logo_width / ratio)))
-            logo_x = int((img.width - logo_img.width) / 2)
-            # place above name with some gap
-            logo_y = int(draw_y - logo_img.height - (0.5 * text_h))
-            if logo_y < 10:
-                logo_y = 10
-            img.paste(logo_img, (logo_x, logo_y), logo_img)
-        except Exception:
-            pass
 
     return img
 
@@ -184,23 +167,27 @@ def image_to_pdf_bytes(img: Image.Image):
     out.seek(0)
     return out.read()
 
-# ---------- UI: Header logo (centered) ----------
-# centered header logo
-if logo_path and logo_path.exists():
+# ---------- UI: Header logo (centered) - SITE ONLY ----------
+# Prefer an uploaded logo (via uploader below), otherwise default repo logo if present
+site_logo_path = None
+if DEFAULT_LOGO.exists():
+    site_logo_path = DEFAULT_LOGO
+
+# show centered header logo on site (does NOT get added to PDFs)
+if site_logo_path and site_logo_path.exists():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.image(str(logo_path), width=150)
-# title after logo
+        st.image(str(site_logo_path), width=150)
 st.title("Certificate Generator — QUALIFIED & PARTICIPATED")
 
 # ---------- UI: Uploads ----------
 st.markdown("### 1) Upload files (Excel must contain sheets QUALIFIED & PARTICIPATED)")
-
 excel_file = st.file_uploader("Upload Excel (.xlsx/.xls)", type=["xlsx","xls"])
 qual_upload = st.file_uploader("Qualified template PDF (optional)", type=["pdf"])
 part_upload = st.file_uploader("Participated template PDF (optional)", type=["pdf"])
 ttf_upload = st.file_uploader("Times New Roman Italic TTF (optional)", type=["ttf","otf"])
-logo_upload = st.file_uploader("Logo (optional) — used on site header & in PDF", type=["png","jpg","jpeg"])
+# uploader for site-only logo; saved to disk for preview but will NOT be used in PDF rendering
+site_logo_upload = st.file_uploader("Logo for website header only (optional)", type=["png","jpg","jpeg"])
 
 # save uploaded files to disk if provided
 if qual_upload:
@@ -223,9 +210,11 @@ elif DEFAULT_TTF.exists():
 else:
     ttf_path = None
 
-if logo_upload:
-    logo_path = BASE_DIR / "uploaded_logo.png"
-    logo_path.write_bytes(logo_upload.getbuffer())
+if site_logo_upload:
+    # this logo is only for UI header/preview. do NOT pass into PDF generation functions.
+    uploaded_site_logo = BASE_DIR / "uploaded_site_logo.png"
+    uploaded_site_logo.write_bytes(site_logo_upload.getbuffer())
+    site_logo_path = uploaded_site_logo
 
 # ---------- UI: Position & font settings ----------
 st.sidebar.header("Position & font settings")
@@ -235,9 +224,12 @@ font_size_pt = st.sidebar.number_input("Base font size (pt)", value=DEFAULT_FONT
 max_text_width_cm = st.sidebar.number_input("Max name width (cm) for autoscale", value=DEFAULT_MAX_TEXT_WIDTH_CM, step=0.5)
 rasterize = st.sidebar.checkbox("Rasterize output (recommended)", value=True)
 
-# register font for vector overlay if possible
 font_name = register_ttf_if_present(Path(ttf_path) if ttf_path else None)
 st.sidebar.write("Font used:", font_name)
+
+# Preview: show the site logo preview in sidebar if uploaded
+if site_logo_path and site_logo_path.exists():
+    st.sidebar.image(str(site_logo_path), width=100, caption="Site logo preview")
 
 # ---------- UI: Preview ----------
 st.markdown("### 2) Preview (live)")
@@ -246,7 +238,6 @@ template_for_preview = qual_path if preview_choice == "QUALIFIED" else part_path
 
 if template_for_preview and Path(template_for_preview).exists():
     sample_name = st.text_input("Sample name for preview", "Aarav Sharma")
-    # determine preview mode
     if not rasterize:
         reader = PdfReader(str(template_for_preview))
         mediabox = reader.pages[0].mediabox
@@ -258,8 +249,9 @@ if template_for_preview and Path(template_for_preview).exists():
         st.image(png, use_column_width=True, caption="Preview (vector overlay)")
     else:
         img, page_w_pt, page_h_pt = render_page_to_image(template_for_preview, dpi=300)
+        # NOTE: draw_name_on_image intentionally does NOT draw a logo
         img_preview = draw_name_on_image(img.copy(), sample_name, x_cm, y_cm, page_w_pt, page_h_pt,
-                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300, logo_path=logo_path)
+                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
         buf = BytesIO()
         img_preview.save(buf, format="PNG")
         st.image(buf.getvalue(), use_column_width=True, caption="Preview (raster)")
@@ -327,8 +319,9 @@ if st.button("Generate certificates ZIP"):
                         zf.writestr(f"QUALIFIED/{nm_clean}.pdf", merged.read())
                     else:
                         img, page_w_pt, page_h_pt = render_page_to_image(qual_path, dpi=300)
+                        # IMPORTANT: passing logo_path is intentionally skipped so PDFs get NO logo
                         img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt,
-                                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300, logo_path=logo_path)
+                                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
                         pdf_bytes = image_to_pdf_bytes(img_w_name)
                         zf.writestr(f"QUALIFIED/{nm_clean}.pdf", pdf_bytes)
 
@@ -348,8 +341,9 @@ if st.button("Generate certificates ZIP"):
                         zf.writestr(f"PARTICIPATED/{nm_clean}.pdf", merged.read())
                     else:
                         img, page_w_pt, page_h_pt = render_page_to_image(part_path, dpi=300)
+                        # IMPORTANT: no logo passed here either
                         img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt,
-                                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300, logo_path=logo_path)
+                                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
                         pdf_bytes = image_to_pdf_bytes(img_w_name)
                         zf.writestr(f"PARTICIPATED/{nm_clean}.pdf", pdf_bytes)
 
