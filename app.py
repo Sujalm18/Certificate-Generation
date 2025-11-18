@@ -13,6 +13,26 @@ from PyPDF2 import PdfReader, PdfWriter
 import fitz  # PyMuPDF
 from PIL import Image, ImageDraw, ImageFont
 
+# ---------- Logo on the website ----------
+default_logo = BASE_DIR / "logo.png"   # must match file name exactly (case-sensitive)
+
+# debug: optionally show current working dir and files (uncomment while debugging)
+# st.sidebar.write("CWD:", Path.cwd())
+# st.sidebar.write("Files:", [p.name for p in Path.cwd().iterdir()])
+
+logo_path_ui = default_logo if default_logo.exists() else None
+
+if logo_path_ui:
+    # center the logo
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image(str(logo_path_ui), width=220, use_column_width=False)
+else:
+    st.info("logo.png not found in app folder (place file in repo root or upload in UI).")
+
+# then show title
+st.title("Certificate Generator — QUALIFIED & PARTICIPATED")
+
 # ---------- Config ----------
 st.set_page_config(page_title="Certificate Generator", layout="wide")
 st.title("Certificate Generator — QUALIFIED & PARTICIPATED")
