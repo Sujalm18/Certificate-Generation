@@ -22,9 +22,7 @@ st.set_page_config(layout="centered")
 col1, col2, col3 = st.columns([1, 0.5, 1])
 with col2:
     st.image("logo.png", width=200)
-st.title("PHN Scholar Exam OMR Generation")
-
-
+    
 # ---------- Config ----------
 st.set_page_config(page_title="Certificate Generator", layout="wide")
 st.title("Certificate Generator — QUALIFIED & PARTICIPATED")
