@@ -30,15 +30,15 @@ st.markdown(
 )
 
 # --------------------------
-# CONSTANTS & DEFAULTS
+# CONSTANTS & DEFAULTS (ensure floats)
 # --------------------------
 DEFAULT_FONT_FILE = "Times New Roman Italic.ttf"
 FONT_PATH = Path(DEFAULT_FONT_FILE)
 
 DEFAULT_X_CM = 10.46
 DEFAULT_Y_CM = 16.50
-DEFAULT_FONT_PT = 19
-DEFAULT_MAX_WIDTH_CM = 16
+DEFAULT_FONT_PT = 19.0        # made float
+DEFAULT_MAX_WIDTH_CM = 16.0   # made float
 DPI = 300
 
 def cm_to_px(cm, dpi=DPI):
@@ -155,10 +155,10 @@ st.sidebar.header("Rasterize output (recommended)")
 rasterize = st.sidebar.checkbox("Rasterize certificates", value=True)
 
 st.sidebar.header("Position & font settings")
-X_CM = st.sidebar.number_input("X (cm from left)", value=DEFAULT_X_CM, format="%.2f", step=0.01)
-Y_CM = st.sidebar.number_input("Y (cm from bottom)", value=DEFAULT_Y_CM, format="%.2f", step=0.01)
-BASE_FONT_PT = st.sidebar.number_input("Base font size (pt)", value=DEFAULT_FONT_PT, step=1)
-MAX_WIDTH_CM = st.sidebar.number_input("Max name width (cm)", value=DEFAULT_MAX_WIDTH_CM, step=0.5)
+X_CM = st.sidebar.number_input("X (cm from left)", value=float(DEFAULT_X_CM), format="%.2f", step=0.01)
+Y_CM = st.sidebar.number_input("Y (cm from bottom)", value=float(DEFAULT_Y_CM), format="%.2f", step=0.01)
+BASE_FONT_PT = st.sidebar.number_input("Base font size (pt)", value=float(DEFAULT_FONT_PT), step=1.0)
+MAX_WIDTH_CM = st.sidebar.number_input("Max name width (cm)", value=float(DEFAULT_MAX_WIDTH_CM), step=0.5)
 
 # --------------------------
 # CHECKBOXES & centered caption
