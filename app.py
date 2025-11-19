@@ -8,346 +8,223 @@ from PIL import Image, ImageDraw, ImageFont
 from zipfile import ZipFile
 import random
 import time
-import re
+import base64
 
 # --------------------------
-# CONFIG
+# PAGE CONFIG
 # --------------------------
 st.set_page_config(page_title="Certificate Generator", layout="wide")
-ROOT = Path(".")
-LOGO_FILENAME = "logo.png"
 
-# default template filenames (must match exactly in repo root)
-DEFAULT_QUALIFIED = "phnscholar qualified certificate.pdf"
-DEFAULT_PARTICIPATED = "phnscholar participation certificate.pdf"
-DEFAULT_SMARTEDGE = "smart edge workshop certificate.pdf"
+# --------------------------
+# CENTERED LOGO (UI ONLY, NOT PDF)
+# --------------------------
+logo_file = "logo.png"
+if Path(logo_file).exists():
+    b64logo = base64.b64encode(Path(logo_file).read_bytes()).decode()
+    st.markdown(
+        f"""
+        <div style='display:flex; justify-content:center; margin-top:-20px; margin-bottom:-10px;'>
+            <img src="data:image/png;base64,{b64logo}" style="width:140px;" />
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-# constants (floats to avoid mixed numeric-type errors)
+# --------------------------
+# TITLE
+# --------------------------
+st.markdown(
+    "<h1 style='text-align:center;'>Certificate Generator — QUALIFIED, PARTICIPATED & SMART EDGE WORKSHOP</h1>",
+    unsafe_allow_html=True
+)
+
+# --------------------------
+# CONSTANTS
+# --------------------------
 DEFAULT_FONT_FILE = "Times New Roman Italic.ttf"
 FONT_PATH = Path(DEFAULT_FONT_FILE)
+
 DEFAULT_X_CM = 10.46
 DEFAULT_Y_CM = 16.50
-DEFAULT_FONT_PT = 19.0
-DEFAULT_MAX_WIDTH_CM = 16.0
+DEFAULT_FONT_PT = 19
+DEFAULT_MAX_WIDTH_CM = 16
 DPI = 300
 
 def cm_to_px(cm, dpi=DPI):
     return int((cm / 2.54) * dpi)
 
-def safe_filename(s: str):
-    s = str(s).strip()
-    s = re.sub(r'[\\/*?:"<>|]', '_', s)
-    s = re.sub(r'\s+', '_', s)
-    return s[:200]
-
 # --------------------------
-# SITE LOGO (root) - only for UI
-# --------------------------
-if Path(LOGO_FILENAME).exists():
-    st.image(LOGO_FILENAME, width=150)
-
-st.markdown(
-    "<h1 style='text-align:center;'>PHN Certificate Generator</h1>",
-    unsafe_allow_html=True,
-)
-
-# --------------------------
-# MESSAGES
+# FUNNY ERRORS
 # --------------------------
 FUNNY_ERRORS = [
     "You selected NOTHING. I can't make certificates out of vibes 😅",
     "Did you mean invisible certificates? Pick at least one checkbox! 🫥",
     "No selection detected. My crystal ball is on lunch. Pick something! 🔮🍔",
     "I need a target — pick a group or I'll generate imaginary friends. 👻",
-    "Zero choices found. The app prefers options, not silence. 😶‍🌫️",
+    "Zero choices found. The app prefers options, not silence. 😶‍🌫️"
 ]
 
 MISSING_TEMPLATE_ERRORS = [
     "Template missing! Even superheroes need costumes — upload the PDF. 🦸‍♂️",
     "No template found. Please upload the PDF unless you want blank sheets. 📝❌",
+    "Template not uploaded — certificates won’t dress themselves. 👔"
 ]
 
 MISSING_SHEET_ERRORS = [
     "Excel missing the needed sheet. Did it go on vacation? 🏖️",
-    "No matching sheet — try renaming it to Names / Name / Smart Edge / Certificates.",
+    "Required sheet not found. Please use the correct sheet name. 📄",
+    "No matching sheet — try renaming it to Names / Name / Smart Edge / Certificates."
 ]
 
 # --------------------------
-# DRAW / PDF HELPERS
+# DRAW NAME ON PDF TEMPLATE
 # --------------------------
-def draw_name_on_template(template_bytes: bytes, name: str, x_cm: float, y_cm: float,
-                          font_size_pt: float, max_width_cm: float) -> Image.Image:
-    """Render first page of PDF template to image, draw centered name at x_cm,y_cm from left/bottom."""
+def draw_name_on_template(template_bytes, name, x_cm, y_cm, font_size_pt, max_width_cm):
     doc = fitz.open(stream=template_bytes, filetype="pdf")
     page = doc[0]
+
     pix = page.get_pixmap(dpi=DPI)
     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
     draw = ImageDraw.Draw(img)
 
-    # load TTF if available
-    font = None
     if FONT_PATH.exists():
         try:
-            font_px = max(8, int(round(font_size_pt * DPI / 72.0)))
+            font_px = max(8, int(font_size_pt * DPI / 72))
             font = ImageFont.truetype(str(FONT_PATH), font_px)
-        except Exception:
+        except:
             font = ImageFont.load_default()
     else:
         font = ImageFont.load_default()
 
-    # center coordinates in pixels
     x_px = cm_to_px(x_cm)
-    y_px_from_bottom = cm_to_px(y_cm)
-    y_px = img.height - y_px_from_bottom
+    y_px = img.height - cm_to_px(y_cm)
 
-    # compute text size and autoscale if needed
     try:
         bbox = draw.textbbox((0, 0), name, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
-    except Exception:
+    except:
         text_w, text_h = draw.textsize(name, font=font)
 
     max_w_px = cm_to_px(max_width_cm)
     if text_w > max_w_px:
         try:
-            if hasattr(font, "path"):
-                scale = max_w_px / text_w
-                new_font_px = max(8, int((font.size if hasattr(font, "size") else font_px) * scale))
-                font = ImageFont.truetype(str(FONT_PATH), new_font_px)
-                bbox = draw.textbbox((0, 0), name, font=font)
-                text_w = bbox[2] - bbox[0]
-                text_h = bbox[3] - bbox[1]
-        except Exception:
+            scale = max_w_px / text_w
+            new_font_px = int(font.size * scale)
+            font = ImageFont.truetype(str(FONT_PATH), new_font_px)
+            bbox = draw.textbbox((0, 0), name, font=font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+        except:
             pass
 
-    draw_x = int(round(x_px - text_w / 2.0))
-    draw_y = int(round(y_px - text_h / 2.0))
+    draw_x = int(x_px - text_w/2)
+    draw_y = int(y_px - text_h/2)
 
-    # draw white outline + black fill for visibility
-    outline_color = "white"
-    fill_color = "black"
     for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
-        draw.text((draw_x + dx, draw_y + dy), name, font=font, fill=outline_color)
-    draw.text((draw_x, draw_y), name, font=font, fill=fill_color)
+        draw.text((draw_x+dx, draw_y+dy), name, font=font, fill="white")
+
+    draw.text((draw_x, draw_y), name, font=font, fill="black")
 
     return img
 
-def image_to_pdf_bytes(img: Image.Image) -> bytes:
-    out = io.BytesIO()
-    img.convert("RGB").save(out, format="PDF")
-    return out.getvalue()
+def image_to_pdf_bytes(img):
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PDF")
+    return buf.getvalue()
 
 # --------------------------
-# UI: Uploads & Settings
+# UPLOAD UI
 # --------------------------
 st.header("1) Upload files (Excel must contain sheets QUALIFIED, PARTICIPATED and Smart Edge sheet)")
 
-excel_file = st.file_uploader("Upload Excel (.xlsx/.xls)", type=["xlsx", "xls"])
-uploaded_qual = st.file_uploader("Qualified template PDF (optional)", type=["pdf"])
-uploaded_part = st.file_uploader("Participated template PDF (optional)", type=["pdf"])
-uploaded_smart = st.file_uploader("SMART EDGE template PDF (optional)", type=["pdf"])
-ttf_upload = st.file_uploader("Times New Roman Italic TTF (optional)", type=["ttf","otf"])
+excel_file = st.file_uploader("Upload Excel", type=["xlsx","xls"])
+qualified_pdf_file = st.file_uploader("Qualified template PDF", type=["pdf"])
+participated_pdf_file = st.file_uploader("Participated template PDF", type=["pdf"])
+smartedge_pdf_file = st.file_uploader("Smart Edge Workshop template PDF", type=["pdf"])
 
-# read uploaded bytes once
-qual_bytes = uploaded_qual.read() if uploaded_qual else None
-part_bytes = uploaded_part.read() if uploaded_part else None
-smart_bytes = uploaded_smart.read() if uploaded_smart else None
-
-# fallback to defaults in repo root if upload not provided
-if qual_bytes is None and Path(DEFAULT_QUALIFIED).exists():
-    qual_bytes = Path(DEFAULT_QUALIFIED).read_bytes()
-if part_bytes is None and Path(DEFAULT_PARTICIPATED).exists():
-    part_bytes = Path(DEFAULT_PARTICIPATED).read_bytes()
-if smart_bytes is None and Path(DEFAULT_SMARTEDGE).exists():
-    smart_bytes = Path(DEFAULT_SMARTEDGE).read_bytes()
-
-# optionally override TTF
-if ttf_upload:
-    with open("uploaded_times.ttf", "wb") as f:
-        f.write(ttf_upload.getbuffer())
-    FONT_PATH = Path("uploaded_times.ttf")
-
-# sidebar controls (float values)
-st.sidebar.header("Rasterize output (recommended)")
-rasterize = st.sidebar.checkbox("Rasterize certificates", value=True)
-
+# --------------------------
+# SIDEBAR SETTINGS
+# --------------------------
 st.sidebar.header("Position & font settings")
-X_CM = st.sidebar.number_input("X (cm from left)", value=float(DEFAULT_X_CM), format="%.2f", step=0.01)
-Y_CM = st.sidebar.number_input("Y (cm from bottom)", value=float(DEFAULT_Y_CM), format="%.2f", step=0.01)
-BASE_FONT_PT = st.sidebar.number_input("Base font size (pt)", value=float(DEFAULT_FONT_PT), step=1.0)
+X_CM = st.sidebar.number_input("X (cm from left)", value=float(DEFAULT_X_CM), step=0.01)
+Y_CM = st.sidebar.number_input("Y (cm from bottom)", value=float(DEFAULT_Y_CM), step=0.01)
+BASE_FONT_PT = st.sidebar.number_input("Base font size", value=int(DEFAULT_FONT_PT), step=1)
 MAX_WIDTH_CM = st.sidebar.number_input("Max name width (cm)", value=float(DEFAULT_MAX_WIDTH_CM), step=0.5)
 
 # --------------------------
-# Live preview (choose which template to preview)
+# CHECKBOXES
 # --------------------------
-st.markdown("---")
-st.subheader("Live Preview (select template and enter name)")
-
-preview_name = st.text_input("Preview name", "Aarav Sharma")
-
-# preview source selection
-preview_choice = st.selectbox(
-    "Select template for preview",
-    options=[
-        ("Qualified (upload or default)", "QUAL"),
-        ("Participated (upload or default)", "PART"),
-        ("Smart Edge (upload or default)", "SMART")
-    ],
-    format_func=lambda x: x[0]
-)
-
-preview_template = None
-if preview_choice[1] == "QUAL":
-    preview_template = qual_bytes
-elif preview_choice[1] == "PART":
-    preview_template = part_bytes
-else:
-    preview_template = smart_bytes
-
-if preview_template:
-    try:
-        img_prev = draw_name_on_template(preview_template, preview_name, X_CM, Y_CM, BASE_FONT_PT, MAX_WIDTH_CM)
-        st.image(img_prev, caption="Live certificate preview", use_column_width=True)
-    except Exception as e:
-        st.error(f"Preview error: {e}")
-else:
-    st.info("Upload or provide at least one template (or ensure default templates exist in repo root).")
-
-# --------------------------
-# checkboxes (none selected by default)
-# --------------------------
-st.markdown("---")
-st.markdown("### 2) Select which certificates to generate")
+st.markdown("### 3) Generate and download final ZIP")
 
 col1, col2, col3 = st.columns([1,1,1])
-with col1:
-    gen_qualified = st.checkbox("Generate QUALIFIED", value=False)
-with col2:
-    gen_participated = st.checkbox("Generate PARTICIPATED", value=False)
-with col3:
-    gen_smartedge = st.checkbox("Generate SMART EDGE WORKSHOP", value=False)
+with col1: gen_q = st.checkbox("Generate QUALIFIED")
+with col2: gen_p = st.checkbox("Generate PARTICIPATED")
+with col3: gen_s = st.checkbox("Generate SMART EDGE WORKSHOP")
 
 st.markdown(
-    "<div style='text-align:center; opacity:0.75; margin-top:10px;'>"
-    "Select which certificates to include in the ZIP. Uncheck to exclude a group."
-    "</div>",
+    "<div style='text-align:center; opacity:0.75;'>Select which certificates to include in the ZIP.</div>",
     unsafe_allow_html=True
 )
 
 # --------------------------
-# Generate ZIP with progress
+# GENERATION
 # --------------------------
 if st.button("Generate certificates ZIP"):
 
-    if not (gen_qualified or gen_participated or gen_smartedge):
+    if not (gen_q or gen_p or gen_s):
         st.error(random.choice(FUNNY_ERRORS))
         st.stop()
 
     if excel_file is None:
-        st.error(random.choice(MISSING_SHEET_ERRORS))
+        st.error("Upload the Excel file first.")
         st.stop()
 
-    # read excel
-    try:
-        xls = pd.ExcelFile(excel_file)
-    except Exception as e:
-        st.error(f"Cannot read Excel: {e}")
-        st.stop()
+    xls = pd.ExcelFile(excel_file)
 
-    # detect smart edge sheet (names allowed)
-    smartedge_allowed = {"NAMES", "NAME", "SMART EDGE", "CERTIFICATES"}
-    smartedge_sheet = None
+    # Smart Edge sheet detection
+    allowed_sheets = ["NAMES", "NAME", "SMART EDGE", "CERTIFICATES"]
+    smart_sheet = None
     for s in xls.sheet_names:
-        if s.strip().upper() in smartedge_allowed:
-            smartedge_sheet = s
+        if s.strip().upper() in allowed_sheets:
+            smart_sheet = s
             break
 
-    # template presence checks (use default bytes or uploaded bytes)
-    if gen_qualified and not qual_bytes:
-        st.error(MISSING_TEMPLATE_ERRORS[0] + " (Qualified)")
-        st.stop()
-    if gen_participated and not part_bytes:
-        st.error(MISSING_TEMPLATE_ERRORS[0] + " (Participated)")
-        st.stop()
-    if gen_smartedge and not smart_bytes:
-        st.error(MISSING_TEMPLATE_ERRORS[0] + " (Smart Edge)")
-        st.stop()
-    if gen_smartedge and not smartedge_sheet:
-        st.error(MISSING_SHEET_ERRORS[2])
+    # Read templates
+    qual_bytes = qualified_pdf_file.read() if (gen_q and qualified_pdf_file) else None
+    part_bytes = participated_pdf_file.read() if (gen_p and participated_pdf_file) else None
+    smart_bytes = smartedge_pdf_file.read() if (gen_s and smartedge_pdf_file) else None
+
+    if gen_s and smart_sheet is None:
+        st.error("Smart Edge sheet missing! Use Names / Name / Smart Edge / Certificates.")
         st.stop()
 
-    # read sheets into dataframes (if present)
-    df_q = pd.read_excel(excel_file, sheet_name="QUALIFIED", dtype=object) if ("QUALIFIED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
-    df_p = pd.read_excel(excel_file, sheet_name="PARTICIPATED", dtype=object) if ("PARTICIPATED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
-    df_s = pd.read_excel(excel_file, sheet_name=smartedge_sheet, dtype=object) if smartedge_sheet else pd.DataFrame()
+    # Read names
+    df_q = pd.read_excel(excel_file, "QUALIFIED") if gen_q else pd.DataFrame()
+    df_p = pd.read_excel(excel_file, "PARTICIPATED") if gen_p else pd.DataFrame()
+    df_s = pd.read_excel(excel_file, smart_sheet) if (gen_s and smart_sheet) else pd.DataFrame()
 
-    # build tasks
     tasks = []
-    group_counts = {"QUALIFIED": 0, "PARTICIPATED": 0, "SMART_EDGE_WORKSHOP": 0}
-
-    if gen_qualified and not df_q.empty:
-        q_names = df_q.iloc[:,0].dropna().astype(str).tolist()
-        group_counts["QUALIFIED"] = len(q_names)
-        tasks += [("QUALIFIED", n.strip()) for n in q_names]
-
-    if gen_participated and not df_p.empty:
-        p_names = df_p.iloc[:,0].dropna().astype(str).tolist()
-        group_counts["PARTICIPATED"] = len(p_names)
-        tasks += [("PARTICIPATED", n.strip()) for n in p_names]
-
-    if gen_smartedge and not df_s.empty:
-        s_names = df_s.iloc[:,0].dropna().astype(str).tolist()
-        group_counts["SMART_EDGE_WORKSHOP"] = len(s_names)
-        tasks += [("SMART_EDGE_WORKSHOP", n.strip()) for n in s_names]
-
-    if len(tasks) == 0:
-        st.warning("No names found in the selected sheets. Nothing to generate.")
-        st.stop()
+    if gen_q: tasks += [("QUALIFIED", n) for n in df_q.iloc[:,0].dropna()]
+    if gen_p: tasks += [("PARTICIPATED", n) for n in df_p.iloc[:,0].dropna()]
+    if gen_s: tasks += [("SMART", n) for n in df_s.iloc[:,0].dropna()]
 
     total = len(tasks)
-    overall_progress = st.progress(0.0)
-    overall_status = st.empty()
+    overall = st.progress(0)
 
-    # per-group placeholders
-    group_done = {g: 0 for g in group_counts}
-    group_text = {}
-    group_bars = {}
-    for g, cnt in group_counts.items():
-        if cnt > 0:
-            group_text[g] = st.empty()
-            group_bars[g] = st.progress(0.0)
-
-    # generate and write to in-memory zip
-    zip_buf = io.BytesIO()
-    with ZipFile(zip_buf, "w") as zf:
+    zip_buffer = io.BytesIO()
+    with ZipFile(zip_buffer, "w") as z:
         for idx, (group, name) in enumerate(tasks, start=1):
-            group_done[group] += 1
-            overall_status.info(f"Overall: {idx}/{total} — Generating {group} / {name}")
-            # update per-group UI
-            for g in group_text:
-                done = group_done.get(g, 0)
-                total_g = group_counts.get(g, 0)
-                group_text[g].text(f"{g.replace('_', ' ')}: {done}/{total_g} done")
-                if total_g > 0:
-                    group_bars[g].progress(done / total_g)
 
-            time.sleep(0.01)  # small sleep so UI updates
+            tpl = qual_bytes if group=="QUALIFIED" else part_bytes if group=="PARTICIPATED" else smart_bytes
+            img = draw_name_on_template(tpl, str(name), X_CM, Y_CM, BASE_FONT_PT, MAX_WIDTH_CM)
+            pdf_bytes = image_to_pdf_bytes(img)
 
-            try:
-                tpl = qual_bytes if group == "QUALIFIED" else (part_bytes if group == "PARTICIPATED" else smart_bytes)
-                img = draw_name_on_template(tpl, name, X_CM, Y_CM, BASE_FONT_PT, MAX_WIDTH_CM)
-                pdf_bytes = image_to_pdf_bytes(img)
-                zf.writestr(f"{group}/{safe_filename(name)}.pdf", pdf_bytes)
-            except Exception as e:
-                err = f"Failed to generate for {name}: {e}"
-                zf.writestr(f"{group}/{safe_filename(name)}_ERROR.txt", err.encode("utf-8"))
+            safe = str(name).replace("/", "_")
+            z.writestr(f"{group}/{safe}.pdf", pdf_bytes)
 
-            overall_progress.progress(idx / total)
+            overall.progress(idx/total)
+            time.sleep(0.01)
 
-        overall_status.success("All items processed. Finalizing ZIP...")
-
-    st.balloons()
-    st.success(f"Done — {total} certificates generated (errors, if any, are in ZIP).")
-    zip_buf.seek(0)
-    st.download_button("Download certificates ZIP", data=zip_buf.getvalue(), file_name="Certificates.zip", mime="application/zip")
+    st.success("Done!")
+    st.download_button("Download ZIP", zip_buffer.getvalue(), "certificates.zip", "application/zip")
