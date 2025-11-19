@@ -239,8 +239,7 @@ with col3:
 
 st.markdown(
     "<div style='text-align:center; opacity:0.75; margin-top:10px;'>"
-    "Select which certificates to include in the ZIP. Uncheck to exclude a group.
-    "
+    "Select which certificates to include in the ZIP. Uncheck to exclude a group.\n"
     "</div>",
     unsafe_allow_html=True
 )
