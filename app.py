@@ -258,7 +258,7 @@ else:
 # ---------- UI: Export options ----------
 st.markdown("### 3) Generate and download final ZIP")
 st.write("Export options:")
-col_a, col_b, col_c = st.columns([1,2,3])
+col_a, col_b, col_c = st.columns([1,2,2])
 with col_a:
     gen_qualified = st.checkbox("Generate QUALIFIED", value=False)
 with col_b:
