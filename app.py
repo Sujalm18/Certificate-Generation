@@ -35,7 +35,7 @@ if Path(LOGO_FILE).exists():
 # TITLE
 # --------------------------
 st.markdown(
-    "<h1 style='text-align:center;'>PHN Certificate Generator</h1>",
+    "<h1 style='text-align:center;'>Certificate Generator — QUALIFIED, PARTICIPATED & SMART EDGE WORKSHOP</h1>",
     unsafe_allow_html=True
 )
 
@@ -204,7 +204,7 @@ st.subheader("Live Preview")
 preview_name = st.text_input("Preview name", "Aarav Sharma")
 
 # choose which template to preview (shows options even if None)
-preview_option = st.selectbox("Template for preview", ["Qualified", "Participated", "Smart Edge"])
+preview_option = st.selectbox("Template for preview", ["Qualified (upload or default)", "Participated (upload or default)", "Smart Edge (upload or default)"])
 
 preview_template_bytes = None
 if preview_option.startswith("Qualified"):
@@ -239,15 +239,21 @@ with col3:
 
 st.markdown(
     "<div style='text-align:center; opacity:0.75; margin-top:10px;'>"
-    "Select which certificates to include in the ZIP. Uncheck to exclude a group.\n"
+    "Select which certificates to include in the ZIP. Uncheck to exclude a group."
     "</div>",
     unsafe_allow_html=True
 )
 
 # --------------------------
+# ----- ADDED SPACING -----
+# Add a vertical spacer (25px) before the Generate button
+st.markdown("<div style='height:25px;'></div>", unsafe_allow_html=True)
+# --------------------------
+
+# --------------------------
 # GENERATE ZIP (progress)
 # --------------------------
-if st.button("\n Generate certificates ZIP"):
+if st.button("Generate certificates ZIP"):
 
     # funny error if nothing selected
     if not (gen_qualified or gen_participated or gen_smartedge):
