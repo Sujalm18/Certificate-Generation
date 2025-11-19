@@ -258,14 +258,14 @@ else:
 # ---------- UI: Export options ----------
 st.markdown("### 3) Generate and download final ZIP")
 st.write("Export options:")
-col_a, col_b, col_c = st.columns([1,2,7])
+col_a, col_b, col_c, col_d = st.columns([1,2,7,1])
 with col_a:
     gen_qualified = st.checkbox("Generate QUALIFIED", value=False)
 with col_b:
     gen_participated = st.checkbox("Generate PARTICIPATED", value=False)
 with col_c:
     gen_smart_ws = st.checkbox("Generate SMART EDGE WORKSHOP", value=False)
-with col_c:
+with col_d:
     st.caption("Select which certificates to include in the ZIP. Uncheck to exclude a group.")
 
 # ---------- Generation logic ----------
