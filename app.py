@@ -247,7 +247,7 @@ st.markdown(
 # --------------------------
 # GENERATE ZIP (progress)
 # --------------------------
-if st.button("Generate certificates ZIP"):
+if st.button("\n Generate certificates ZIP"):
 
     # funny error if nothing selected
     if not (gen_qualified or gen_participated or gen_smartedge):
