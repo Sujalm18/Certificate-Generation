@@ -4,7 +4,6 @@ from pathlib import Path
 from io import BytesIO
 import zipfile
 import pandas as pd
-import math
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
@@ -25,7 +24,6 @@ DEFAULT_MAX_TEXT_WIDTH_CM = 16.0
 
 DEFAULT_QUAL = BASE_DIR / "phnscholar qualified certificate.pdf"
 DEFAULT_PART = BASE_DIR / "phnscholar participation certificate.pdf"
-DEFAULT_SMART = BASE_DIR / "smart edge certificate.pdf"
 DEFAULT_SMART_WS = BASE_DIR / "smart edge workshop certificate.pdf"
 DEFAULT_TTF = BASE_DIR / "Times New Roman Italic.ttf"
 DEFAULT_LOGO = BASE_DIR / "logo.png"  # site-only logo
@@ -168,17 +166,16 @@ if DEFAULT_LOGO.exists():
     site_logo_path = DEFAULT_LOGO
 
 if site_logo_path and site_logo_path.exists():
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1, 0.5, 1])
     with col2:
         st.image(str(site_logo_path), width=150)
-st.title("Certificate Generator — QUALIFIED, PARTICIPATED, SMART EDGE & WORKSHOP")
+st.title("Certificate Generator — QUALIFIED, PARTICIPATED & SMART EDGE WORKSHOP")
 
 # ---------- UI: Uploads ----------
-st.markdown("### 1) Upload files (Excel may contain sheets QUALIFIED, PARTICIPATED, SMART EDGE, SMART EDGE WORKSHOP)")
+st.markdown("### 1) Upload files (Excel may contain sheets QUALIFIED, PARTICIPATED, SMART EDGE WORKSHOP)")
 excel_file = st.file_uploader("Upload Excel (.xlsx/.xls)", type=["xlsx","xls"])
 qual_upload = st.file_uploader("Qualified template PDF (optional)", type=["pdf"])
 part_upload = st.file_uploader("Participated template PDF (optional)", type=["pdf"])
-smart_upload = st.file_uploader("Smart Edge template PDF (optional)", type=["pdf"])
 smart_ws_upload = st.file_uploader("Smart Edge Workshop template PDF (optional)", type=["pdf"])
 ttf_upload = st.file_uploader("Times New Roman Italic TTF (optional)", type=["ttf","otf"])
 site_logo_upload = st.file_uploader("Logo for website header only (optional)", type=["png","jpg","jpeg"])
@@ -195,12 +192,6 @@ if part_upload:
     part_path.write_bytes(part_upload.getbuffer())
 else:
     part_path = DEFAULT_PART if DEFAULT_PART.exists() else None
-
-if smart_upload:
-    smart_path = BASE_DIR / "smart_uploaded.pdf"
-    smart_path.write_bytes(smart_upload.getbuffer())
-else:
-    smart_path = DEFAULT_SMART if DEFAULT_SMART.exists() else None
 
 if smart_ws_upload:
     smart_ws_path = BASE_DIR / "smart_ws_uploaded.pdf"
@@ -237,10 +228,10 @@ if site_logo_path and site_logo_path.exists():
 
 # ---------- UI: Preview ----------
 st.markdown("### 2) Preview (live)")
-preview_choice = st.selectbox("Preview template", options=["QUALIFIED", "PARTICIPATED", "SMART EDGE", "SMART EDGE WORKSHOP"])
+preview_choice = st.selectbox("Preview template", options=["QUALIFIED", "PARTICIPATED", "SMART EDGE WORKSHOP"])
 template_for_preview = (
     qual_path if preview_choice == "QUALIFIED"
-    else (part_path if preview_choice == "PARTICIPATED" else (smart_path if preview_choice == "SMART EDGE" else smart_ws_path))
+    else (part_path if preview_choice == "PARTICIPATED" else smart_ws_path)
 )
 
 if template_for_preview and Path(template_for_preview).exists():
@@ -267,26 +258,22 @@ else:
 # ---------- UI: Export options ----------
 st.markdown("### 3) Generate and download final ZIP")
 st.write("Export options:")
-col_a, col_b, col_c, col_d, col_e = st.columns([1,2,3,4,8])
+col_a, col_b, col_c = st.columns([1,2,3])
 with col_a:
     gen_qualified = st.checkbox("Generate QUALIFIED", value=False)
 with col_b:
     gen_participated = st.checkbox("Generate PARTICIPATED", value=False)
 with col_c:
-    gen_smart = st.checkbox("Generate SMART EDGE", value=False)
-with col_d:
     gen_smart_ws = st.checkbox("Generate SMART EDGE WORKSHOP", value=False)
-with col_e:
+with col_c:
     st.caption("Select which certificates to include in the ZIP. Uncheck to exclude a group.")
 
 # ---------- Generation logic ----------
 def find_sheet_variant(xls, variants):
-    """Return the actual sheet name in xls whose upper() matches any variant upper()."""
     names_upper = {n.strip().upper(): n for n in xls.sheet_names}
     for v in variants:
         if v.strip().upper() in names_upper:
             return names_upper[v.strip().upper()]
-    # try fuzzy: any sheet containing the keyword
     for key in variants:
         key_up = key.strip().upper().replace(" ", "")
         for n in xls.sheet_names:
@@ -296,7 +283,7 @@ def find_sheet_variant(xls, variants):
 
 if st.button("Generate certificates ZIP"):
     # Funny message if none selected
-    if not gen_qualified and not gen_participated and not gen_smart and not gen_smart_ws:
+    if not gen_qualified and not gen_participated and not gen_smart_ws:
         st.error("I swear the button works… once you pick something 😆")
         st.stop()
 
@@ -311,9 +298,6 @@ if st.button("Generate certificates ZIP"):
     if gen_participated and not (part_path and Path(part_path).exists()):
         st.error("Participated template missing. Upload or place it in repo.")
         st.stop()
-    if gen_smart and not (smart_path and Path(smart_path).exists()):
-        st.error("Smart Edge template missing. Upload or place it in repo.")
-        st.stop()
     if gen_smart_ws and not (smart_ws_path and Path(smart_ws_path).exists()):
         st.error("Smart Edge Workshop template missing. Upload or place it in repo.")
         st.stop()
@@ -324,17 +308,12 @@ if st.button("Generate certificates ZIP"):
         st.error(f"Cannot read Excel: {e}")
         st.stop()
 
-    # map expected sheets; only check presence for selected groups
     sheets_map = {name.strip().upper(): name for name in xls.sheet_names}
     missing_required = []
     if gen_qualified and "QUALIFIED" not in sheets_map:
         missing_required.append("QUALIFIED")
     if gen_participated and "PARTICIPATED" not in sheets_map:
         missing_required.append("PARTICIPATED")
-    smart_variants = ["SMART EDGE", "SMART_EDGE", "SMARTEDGE", "SMART"]
-    smart_sheet = find_sheet_variant(xls, smart_variants) if gen_smart else None
-    if gen_smart and smart_sheet is None:
-        missing_required.append("SMART EDGE (expected sheet name like 'SMART EDGE')")
     smart_ws_variants = ["SMART EDGE WORKSHOP", "SMART_EDGE_WORKSHOP", "SMARTEDGEWORKSHOP", "SMARTWORKSHOP", "WORKSHOP"]
     smart_ws_sheet = find_sheet_variant(xls, smart_ws_variants) if gen_smart_ws else None
     if gen_smart_ws and smart_ws_sheet is None:
@@ -344,13 +323,10 @@ if st.button("Generate certificates ZIP"):
         st.error(f"Missing sheets in Excel: {missing_required}")
         st.stop()
 
-    # read dfs for selected sheets
     df_q = pd.read_excel(xls, sheet_name=sheets_map["QUALIFIED"], dtype=object) if "QUALIFIED" in sheets_map else pd.DataFrame()
     df_p = pd.read_excel(xls, sheet_name=sheets_map["PARTICIPATED"], dtype=object) if "PARTICIPATED" in sheets_map else pd.DataFrame()
-    df_s = pd.read_excel(xls, sheet_name=smart_sheet, dtype=object) if smart_sheet else pd.DataFrame()
     df_ws = pd.read_excel(xls, sheet_name=smart_ws_sheet, dtype=object) if smart_ws_sheet else pd.DataFrame()
 
-    # prepare zip buffer
     zip_buf = BytesIO()
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
         # QUALIFIED
@@ -372,7 +348,7 @@ if st.button("Generate certificates ZIP"):
                     else:
                         img, page_w_pt, page_h_pt = render_page_to_image(qual_path, dpi=300)
                         img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt,
-                                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
+                                                        font_path=ttf_path if 'ttf_path' in globals() else None, font_size_pt=font_size_pt, dpi=300)
                         pdf_bytes = image_to_pdf_bytes(img_w_name)
                         zf.writestr(f"QUALIFIED/{nm_clean}.pdf", pdf_bytes)
 
@@ -395,32 +371,9 @@ if st.button("Generate certificates ZIP"):
                     else:
                         img, page_w_pt, page_h_pt = render_page_to_image(part_path, dpi=300)
                         img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt,
-                                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
+                                                        font_path=ttf_path if 'ttf_path' in globals() else None, font_size_pt=font_size_pt, dpi=300)
                         pdf_bytes = image_to_pdf_bytes(img_w_name)
                         zf.writestr(f"PARTICIPATED/{nm_clean}.pdf", pdf_bytes)
-
-        # SMART EDGE
-        if gen_smart:
-            col_s = get_first_name_column(df_s)
-            if not col_s:
-                st.warning("SMART EDGE sheet has no name column or it's empty; skipping SMART EDGE.")
-            else:
-                for nm in df_s[col_s].dropna().astype(str):
-                    nm_clean = str(nm).strip()
-                    if not rasterize:
-                        fs = scaled_font_size(nm_clean, font_name, font_size_pt, max_text_width_cm)
-                        reader = PdfReader(str(smart_path))
-                        mediabox = reader.pages[0].mediabox
-                        page_w = float(mediabox.width); page_h = float(mediabox.height)
-                        overlay_buf = make_overlay_pdf_bytes(nm_clean, page_w, page_h, x_cm, y_cm, font_name, fs)
-                        merged = merge_overlay(smart_path, overlay_buf)
-                        zf.writestr(f"SMART_EDGE/{nm_clean}.pdf", merged.read())
-                    else:
-                        img, page_w_pt, page_h_pt = render_page_to_image(smart_path, dpi=300)
-                        img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt,
-                                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
-                        pdf_bytes = image_to_pdf_bytes(img_w_name)
-                        zf.writestr(f"SMART_EDGE/{nm_clean}.pdf", pdf_bytes)
 
         # SMART EDGE WORKSHOP
         if gen_smart_ws:
@@ -441,7 +394,7 @@ if st.button("Generate certificates ZIP"):
                     else:
                         img, page_w_pt, page_h_pt = render_page_to_image(smart_ws_path, dpi=300)
                         img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt,
-                                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
+                                                        font_path=ttf_path if 'ttf_path' in globals() else None, font_size_pt=font_size_pt, dpi=300)
                         pdf_bytes = image_to_pdf_bytes(img_w_name)
                         zf.writestr(f"SMART_EDGE_WORKSHOP/{nm_clean}.pdf", pdf_bytes)
 
@@ -449,7 +402,6 @@ if st.button("Generate certificates ZIP"):
     sel = []
     if gen_qualified: sel.append("qualified")
     if gen_participated: sel.append("participated")
-    if gen_smart: sel.append("smartedge")
     if gen_smart_ws: sel.append("smartedge_workshop")
     if not sel:
         st.error("No group selected. Please select at least one group.")
