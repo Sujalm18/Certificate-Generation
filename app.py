@@ -47,7 +47,7 @@ if Path(LOGO_FILENAME).exists():
     st.image(LOGO_FILENAME, width=150)
 
 st.markdown(
-    "<h1 style='text-align:center;'>Certificate Generator — QUALIFIED, PARTICIPATED & SMART EDGE WORKSHOP</h1>",
+    "<h1 style='text-align:center;'>PHN Certificate Generator</h1>",
     unsafe_allow_html=True,
 )
 
