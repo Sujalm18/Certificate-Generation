@@ -25,8 +25,10 @@ DEFAULT_MAX_TEXT_WIDTH_CM = 16.0
 
 DEFAULT_QUAL = BASE_DIR / "phnscholar qualified certificate.pdf"
 DEFAULT_PART = BASE_DIR / "phnscholar participation certificate.pdf"
+DEFAULT_SMART = BASE_DIR / "smart edge certificate.pdf"
+DEFAULT_SMART_WS = BASE_DIR / "smart edge workshop certificate.pdf"
 DEFAULT_TTF = BASE_DIR / "Times New Roman Italic.ttf"
-DEFAULT_LOGO = BASE_DIR / "logo.png"  # used on site header only
+DEFAULT_LOGO = BASE_DIR / "logo.png"  # site-only logo
 
 OUT_DIR = BASE_DIR / "output"
 OUT_DIR.mkdir(exist_ok=True)
@@ -88,7 +90,7 @@ def render_pdf_to_png_bytes(pdf_bytes: bytes, dpi=150):
     pix = page.get_pixmap(dpi=dpi)
     return pix.tobytes("png")
 
-# Raster utilities (NO logo usage for PDF)
+# Raster utilities (PDFs will NOT include site logo)
 def render_page_to_image(pdf_path: Path, dpi=300):
     doc = fitz.open(str(pdf_path))
     page = doc.load_page(0)
@@ -101,9 +103,6 @@ def render_page_to_image(pdf_path: Path, dpi=300):
 
 def draw_name_on_image(img: Image.Image, name: str, x_cm_val, y_cm_val, page_w_pt, page_h_pt,
                        font_path=None, font_size_pt=16, dpi=300):
-    """
-    Draws name onto the image. NOTE: This version does NOT draw any logos.
-    """
     px_per_pt = img.width / page_w_pt
     x_pt = x_cm_val * 28.3464567
     y_pt = y_cm_val * 28.3464567
@@ -113,7 +112,6 @@ def draw_name_on_image(img: Image.Image, name: str, x_cm_val, y_cm_val, page_w_p
 
     draw = ImageDraw.Draw(img)
 
-    # load font
     try:
         if font_path and Path(font_path).exists():
             font_px = int(round(font_size_pt * dpi / 72.0))
@@ -123,7 +121,6 @@ def draw_name_on_image(img: Image.Image, name: str, x_cm_val, y_cm_val, page_w_p
     except Exception:
         font = ImageFont.load_default()
 
-    # measure text
     try:
         bbox = draw.textbbox((0, 0), name, font=font)
         text_w = bbox[2] - bbox[0]
@@ -131,7 +128,6 @@ def draw_name_on_image(img: Image.Image, name: str, x_cm_val, y_cm_val, page_w_p
     except Exception:
         text_w, text_h = font.getsize(name)
 
-    # autoscale if too wide
     max_w = img.width * 0.75
     if text_w > max_w:
         scale = max_w / text_w
@@ -152,7 +148,6 @@ def draw_name_on_image(img: Image.Image, name: str, x_cm_val, y_cm_val, page_w_p
     draw_x = int(round(x_px - text_w / 2.0))
     draw_y = int(round(y_px - text_h / 2.0))
 
-    # draw outline + fill
     outline = "white"; fill = "black"
     for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
         draw.text((draw_x+dx, draw_y+dy), name, font=font, fill=outline)
@@ -168,25 +163,24 @@ def image_to_pdf_bytes(img: Image.Image):
     return out.read()
 
 # ---------- UI: Header logo (centered) - SITE ONLY ----------
-# Prefer an uploaded logo (via uploader below), otherwise default repo logo if present
 site_logo_path = None
 if DEFAULT_LOGO.exists():
     site_logo_path = DEFAULT_LOGO
 
-# show centered header logo on site (does NOT get added to PDFs)
 if site_logo_path and site_logo_path.exists():
-    col1, col2, col3 = st.columns([1, 0.5, 1])
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.image(str(site_logo_path), width=150)
-st.title("Certificate Generator — QUALIFIED & PARTICIPATED")
+st.title("Certificate Generator — QUALIFIED, PARTICIPATED, SMART EDGE & WORKSHOP")
 
 # ---------- UI: Uploads ----------
-st.markdown("### 1) Upload files (Excel must contain sheets QUALIFIED & PARTICIPATED)")
+st.markdown("### 1) Upload files (Excel may contain sheets QUALIFIED, PARTICIPATED, SMART EDGE, SMART EDGE WORKSHOP)")
 excel_file = st.file_uploader("Upload Excel (.xlsx/.xls)", type=["xlsx","xls"])
 qual_upload = st.file_uploader("Qualified template PDF (optional)", type=["pdf"])
 part_upload = st.file_uploader("Participated template PDF (optional)", type=["pdf"])
+smart_upload = st.file_uploader("Smart Edge template PDF (optional)", type=["pdf"])
+smart_ws_upload = st.file_uploader("Smart Edge Workshop template PDF (optional)", type=["pdf"])
 ttf_upload = st.file_uploader("Times New Roman Italic TTF (optional)", type=["ttf","otf"])
-# uploader for site-only logo; saved to disk for preview but will NOT be used in PDF rendering
 site_logo_upload = st.file_uploader("Logo for website header only (optional)", type=["png","jpg","jpeg"])
 
 # save uploaded files to disk if provided
@@ -202,6 +196,18 @@ if part_upload:
 else:
     part_path = DEFAULT_PART if DEFAULT_PART.exists() else None
 
+if smart_upload:
+    smart_path = BASE_DIR / "smart_uploaded.pdf"
+    smart_path.write_bytes(smart_upload.getbuffer())
+else:
+    smart_path = DEFAULT_SMART if DEFAULT_SMART.exists() else None
+
+if smart_ws_upload:
+    smart_ws_path = BASE_DIR / "smart_ws_uploaded.pdf"
+    smart_ws_path.write_bytes(smart_ws_upload.getbuffer())
+else:
+    smart_ws_path = DEFAULT_SMART_WS if DEFAULT_SMART_WS.exists() else None
+
 if ttf_upload:
     ttf_path = BASE_DIR / "uploaded_times.ttf"
     ttf_path.write_bytes(ttf_upload.getbuffer())
@@ -211,7 +217,6 @@ else:
     ttf_path = None
 
 if site_logo_upload:
-    # this logo is only for UI header/preview. do NOT pass into PDF generation functions.
     uploaded_site_logo = BASE_DIR / "uploaded_site_logo.png"
     uploaded_site_logo.write_bytes(site_logo_upload.getbuffer())
     site_logo_path = uploaded_site_logo
@@ -227,14 +232,16 @@ rasterize = st.sidebar.checkbox("Rasterize output (recommended)", value=True)
 font_name = register_ttf_if_present(Path(ttf_path) if ttf_path else None)
 st.sidebar.write("Font used:", font_name)
 
-# Preview: show the site logo preview in sidebar if uploaded
 if site_logo_path and site_logo_path.exists():
     st.sidebar.image(str(site_logo_path), width=100, caption="Site logo preview")
 
 # ---------- UI: Preview ----------
 st.markdown("### 2) Preview (live)")
-preview_choice = st.selectbox("Preview template", options=["QUALIFIED", "PARTICIPATED"])
-template_for_preview = qual_path if preview_choice == "QUALIFIED" else part_path
+preview_choice = st.selectbox("Preview template", options=["QUALIFIED", "PARTICIPATED", "SMART EDGE", "SMART EDGE WORKSHOP"])
+template_for_preview = (
+    qual_path if preview_choice == "QUALIFIED"
+    else (part_path if preview_choice == "PARTICIPATED" else (smart_path if preview_choice == "SMART EDGE" else smart_ws_path))
+)
 
 if template_for_preview and Path(template_for_preview).exists():
     sample_name = st.text_input("Sample name for preview", "Aarav Sharma")
@@ -249,7 +256,6 @@ if template_for_preview and Path(template_for_preview).exists():
         st.image(png, use_column_width=True, caption="Preview (vector overlay)")
     else:
         img, page_w_pt, page_h_pt = render_page_to_image(template_for_preview, dpi=300)
-        # NOTE: draw_name_on_image intentionally does NOT draw a logo
         img_preview = draw_name_on_image(img.copy(), sample_name, x_cm, y_cm, page_w_pt, page_h_pt,
                                         font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
         buf = BytesIO()
@@ -261,44 +267,88 @@ else:
 # ---------- UI: Export options ----------
 st.markdown("### 3) Generate and download final ZIP")
 st.write("Export options:")
-col_a, col_b, col_c = st.columns([1,1,6])
+col_a, col_b, col_c, col_d, col_e = st.columns([1,1,1,1,6])
 with col_a:
     gen_qualified = st.checkbox("Generate QUALIFIED", value=False)
 with col_b:
     gen_participated = st.checkbox("Generate PARTICIPATED", value=False)
 with col_c:
+    gen_smart = st.checkbox("Generate SMART EDGE", value=False)
+with col_d:
+    gen_smart_ws = st.checkbox("Generate SMART EDGE WORKSHOP", value=False)
+with col_e:
     st.caption("Select which certificates to include in the ZIP. Uncheck to exclude a group.")
 
 # ---------- Generation logic ----------
+def find_sheet_variant(xls, variants):
+    """Return the actual sheet name in xls whose upper() matches any variant upper()."""
+    names_upper = {n.strip().upper(): n for n in xls.sheet_names}
+    for v in variants:
+        if v.strip().upper() in names_upper:
+            return names_upper[v.strip().upper()]
+    # try fuzzy: any sheet containing the keyword
+    for key in variants:
+        key_up = key.strip().upper().replace(" ", "")
+        for n in xls.sheet_names:
+            if key_up in n.strip().upper().replace(" ", ""):
+                return n
+    return None
+
 if st.button("Generate certificates ZIP"):
-    # Funny message if neither checkbox is selected
-    if not gen_qualified and not gen_participated:
+    # Funny message if none selected
+    if not gen_qualified and not gen_participated and not gen_smart and not gen_smart_ws:
         st.error("I swear the button works… once you pick something 😆")
         st.stop()
 
     if not excel_file:
-        st.error("Please upload Excel with QUALIFIED and PARTICIPATED sheets.")
+        st.error("Please upload Excel with the required sheets.")
         st.stop()
-    if not (qual_path and Path(qual_path).exists()):
+
+    # template presence checks for selected groups
+    if gen_qualified and not (qual_path and Path(qual_path).exists()):
         st.error("Qualified template missing. Upload or place it in repo.")
         st.stop()
-    if not (part_path and Path(part_path).exists()):
+    if gen_participated and not (part_path and Path(part_path).exists()):
         st.error("Participated template missing. Upload or place it in repo.")
         st.stop()
+    if gen_smart and not (smart_path and Path(smart_path).exists()):
+        st.error("Smart Edge template missing. Upload or place it in repo.")
+        st.stop()
+    if gen_smart_ws and not (smart_ws_path and Path(smart_ws_path).exists()):
+        st.error("Smart Edge Workshop template missing. Upload or place it in repo.")
+        st.stop()
+
     try:
         xls = pd.ExcelFile(excel_file)
     except Exception as e:
         st.error(f"Cannot read Excel: {e}")
         st.stop()
 
+    # map expected sheets; only check presence for selected groups
     sheets_map = {name.strip().upper(): name for name in xls.sheet_names}
-    missing = [s for s in ("QUALIFIED","PARTICIPATED") if s not in sheets_map]
-    if missing:
-        st.error(f"Missing sheets in Excel: {missing}")
+    missing_required = []
+    if gen_qualified and "QUALIFIED" not in sheets_map:
+        missing_required.append("QUALIFIED")
+    if gen_participated and "PARTICIPATED" not in sheets_map:
+        missing_required.append("PARTICIPATED")
+    smart_variants = ["SMART EDGE", "SMART_EDGE", "SMARTEDGE", "SMART"]
+    smart_sheet = find_sheet_variant(xls, smart_variants) if gen_smart else None
+    if gen_smart and smart_sheet is None:
+        missing_required.append("SMART EDGE (expected sheet name like 'SMART EDGE')")
+    smart_ws_variants = ["SMART EDGE WORKSHOP", "SMART_EDGE_WORKSHOP", "SMARTEDGEWORKSHOP", "SMARTWORKSHOP", "WORKSHOP"]
+    smart_ws_sheet = find_sheet_variant(xls, smart_ws_variants) if gen_smart_ws else None
+    if gen_smart_ws and smart_ws_sheet is None:
+        missing_required.append("SMART EDGE WORKSHOP (expected sheet name like 'SMART EDGE WORKSHOP')")
+
+    if missing_required:
+        st.error(f"Missing sheets in Excel: {missing_required}")
         st.stop()
 
-    df_q = pd.read_excel(xls, sheet_name=sheets_map["QUALIFIED"], dtype=object)
-    df_p = pd.read_excel(xls, sheet_name=sheets_map["PARTICIPATED"], dtype=object)
+    # read dfs for selected sheets
+    df_q = pd.read_excel(xls, sheet_name=sheets_map["QUALIFIED"], dtype=object) if "QUALIFIED" in sheets_map else pd.DataFrame()
+    df_p = pd.read_excel(xls, sheet_name=sheets_map["PARTICIPATED"], dtype=object) if "PARTICIPATED" in sheets_map else pd.DataFrame()
+    df_s = pd.read_excel(xls, sheet_name=smart_sheet, dtype=object) if smart_sheet else pd.DataFrame()
+    df_ws = pd.read_excel(xls, sheet_name=smart_ws_sheet, dtype=object) if smart_ws_sheet else pd.DataFrame()
 
     # prepare zip buffer
     zip_buf = BytesIO()
@@ -306,7 +356,9 @@ if st.button("Generate certificates ZIP"):
         # QUALIFIED
         if gen_qualified:
             col_q = get_first_name_column(df_q)
-            if col_q:
+            if not col_q:
+                st.warning("QUALIFIED sheet has no name column or it's empty; skipping QUALIFIED.")
+            else:
                 for nm in df_q[col_q].dropna().astype(str):
                     nm_clean = str(nm).strip()
                     if not rasterize:
@@ -319,7 +371,6 @@ if st.button("Generate certificates ZIP"):
                         zf.writestr(f"QUALIFIED/{nm_clean}.pdf", merged.read())
                     else:
                         img, page_w_pt, page_h_pt = render_page_to_image(qual_path, dpi=300)
-                        # IMPORTANT: passing logo_path is intentionally skipped so PDFs get NO logo
                         img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt,
                                                         font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
                         pdf_bytes = image_to_pdf_bytes(img_w_name)
@@ -328,7 +379,9 @@ if st.button("Generate certificates ZIP"):
         # PARTICIPATED
         if gen_participated:
             col_p = get_first_name_column(df_p)
-            if col_p:
+            if not col_p:
+                st.warning("PARTICIPATED sheet has no name column or it's empty; skipping PARTICIPATED.")
+            else:
                 for nm in df_p[col_p].dropna().astype(str):
                     nm_clean = str(nm).strip()
                     if not rasterize:
@@ -341,17 +394,63 @@ if st.button("Generate certificates ZIP"):
                         zf.writestr(f"PARTICIPATED/{nm_clean}.pdf", merged.read())
                     else:
                         img, page_w_pt, page_h_pt = render_page_to_image(part_path, dpi=300)
-                        # IMPORTANT: no logo passed here either
                         img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt,
                                                         font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
                         pdf_bytes = image_to_pdf_bytes(img_w_name)
                         zf.writestr(f"PARTICIPATED/{nm_clean}.pdf", pdf_bytes)
 
+        # SMART EDGE
+        if gen_smart:
+            col_s = get_first_name_column(df_s)
+            if not col_s:
+                st.warning("SMART EDGE sheet has no name column or it's empty; skipping SMART EDGE.")
+            else:
+                for nm in df_s[col_s].dropna().astype(str):
+                    nm_clean = str(nm).strip()
+                    if not rasterize:
+                        fs = scaled_font_size(nm_clean, font_name, font_size_pt, max_text_width_cm)
+                        reader = PdfReader(str(smart_path))
+                        mediabox = reader.pages[0].mediabox
+                        page_w = float(mediabox.width); page_h = float(mediabox.height)
+                        overlay_buf = make_overlay_pdf_bytes(nm_clean, page_w, page_h, x_cm, y_cm, font_name, fs)
+                        merged = merge_overlay(smart_path, overlay_buf)
+                        zf.writestr(f"SMART_EDGE/{nm_clean}.pdf", merged.read())
+                    else:
+                        img, page_w_pt, page_h_pt = render_page_to_image(smart_path, dpi=300)
+                        img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt,
+                                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
+                        pdf_bytes = image_to_pdf_bytes(img_w_name)
+                        zf.writestr(f"SMART_EDGE/{nm_clean}.pdf", pdf_bytes)
+
+        # SMART EDGE WORKSHOP
+        if gen_smart_ws:
+            col_ws = get_first_name_column(df_ws)
+            if not col_ws:
+                st.warning("SMART EDGE WORKSHOP sheet has no name column or it's empty; skipping SMART EDGE WORKSHOP.")
+            else:
+                for nm in df_ws[col_ws].dropna().astype(str):
+                    nm_clean = str(nm).strip()
+                    if not rasterize:
+                        fs = scaled_font_size(nm_clean, font_name, font_size_pt, max_text_width_cm)
+                        reader = PdfReader(str(smart_ws_path))
+                        mediabox = reader.pages[0].mediabox
+                        page_w = float(mediabox.width); page_h = float(mediabox.height)
+                        overlay_buf = make_overlay_pdf_bytes(nm_clean, page_w, page_h, x_cm, y_cm, font_name, fs)
+                        merged = merge_overlay(smart_ws_path, overlay_buf)
+                        zf.writestr(f"SMART_EDGE_WORKSHOP/{nm_clean}.pdf", merged.read())
+                    else:
+                        img, page_w_pt, page_h_pt = render_page_to_image(smart_ws_path, dpi=300)
+                        img_w_name = draw_name_on_image(img.copy(), nm_clean, x_cm, y_cm, page_w_pt, page_h_pt,
+                                                        font_path=ttf_path, font_size_pt=font_size_pt, dpi=300)
+                        pdf_bytes = image_to_pdf_bytes(img_w_name)
+                        zf.writestr(f"SMART_EDGE_WORKSHOP/{nm_clean}.pdf", pdf_bytes)
+
     zip_buf.seek(0)
-    # build filename reflecting selection
     sel = []
     if gen_qualified: sel.append("qualified")
     if gen_participated: sel.append("participated")
+    if gen_smart: sel.append("smartedge")
+    if gen_smart_ws: sel.append("smartedge_workshop")
     if not sel:
         st.error("No group selected. Please select at least one group.")
         st.stop()
