@@ -35,7 +35,7 @@ if Path(LOGO_FILE).exists():
 # TITLE
 # --------------------------
 st.markdown(
-    "<h1 style='text-align:center;'>Certificate Generator — QUALIFIED, PARTICIPATED & SMART EDGE WORKSHOP</h1>",
+    "<h1 style='text-align:center;'>PHN Certificate Generator</h1>",
     unsafe_allow_html=True
 )
 
