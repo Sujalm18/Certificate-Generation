@@ -204,7 +204,7 @@ st.subheader("Live Preview")
 preview_name = st.text_input("Preview name", "Aarav Sharma")
 
 # choose which template to preview (shows options even if None)
-preview_option = st.selectbox("Template for preview", ["Qualified (upload or default)", "Participated (upload or default)", "Smart Edge (upload or default)"])
+preview_option = st.selectbox("Template for preview", ["Qualified", "Participated", "Smart Edge"])
 
 preview_template_bytes = None
 if preview_option.startswith("Qualified"):
