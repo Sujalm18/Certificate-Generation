@@ -172,7 +172,7 @@ if site_logo_path and site_logo_path.exists():
 st.title("Certificate Generator — QUALIFIED, PARTICIPATED & SMART EDGE WORKSHOP")
 
 # ---------- UI: Uploads ----------
-st.markdown("### 1) Upload files (Excel may contain sheets QUALIFIED, PARTICIPATED, SMART EDGE WORKSHOP)")
+st.markdown("### 1) Upload files (Excel may contain sheets QUALIFIED, PARTICIPATED, and for Smart Edge Workshop use sheet named: Names / Name / Smart Edge / Certificates)")
 excel_file = st.file_uploader("Upload Excel (.xlsx/.xls)", type=["xlsx","xls"])
 qual_upload = st.file_uploader("Qualified template PDF (optional)", type=["pdf"])
 part_upload = st.file_uploader("Participated template PDF (optional)", type=["pdf"])
@@ -270,15 +270,23 @@ with col_c:
 
 # ---------- Generation logic ----------
 def find_sheet_variant(xls, variants):
-    names_upper = {n.strip().upper(): n for n in xls.sheet_names}
+    # Normalize sheet names in Excel
+    excel_sheets = {s.strip().upper(): s for s in xls.sheet_names}
+
+    # Exact match ignoring case
     for v in variants:
-        if v.strip().upper() in names_upper:
-            return names_upper[v.strip().upper()]
-    for key in variants:
-        key_up = key.strip().upper().replace(" ", "")
-        for n in xls.sheet_names:
-            if key_up in n.strip().upper().replace(" ", ""):
-                return n
+        v_norm = v.strip().upper()
+        if v_norm in excel_sheets:
+            return excel_sheets[v_norm]
+
+    # Loose match ignoring spaces (fallback)
+    for v in variants:
+        v_norm = v.strip().upper().replace(" ", "")
+        for sheet in xls.sheet_names:
+            s_norm = sheet.strip().upper().replace(" ", "")
+            if v_norm == s_norm:
+                return sheet
+
     return None
 
 if st.button("Generate certificates ZIP"):
@@ -314,10 +322,12 @@ if st.button("Generate certificates ZIP"):
         missing_required.append("QUALIFIED")
     if gen_participated and "PARTICIPATED" not in sheets_map:
         missing_required.append("PARTICIPATED")
-    smart_ws_variants = ["SMART EDGE WORKSHOP", "SMART_EDGE_WORKSHOP", "SMARTEDGEWORKSHOP", "SMARTWORKSHOP", "WORKSHOP"]
+
+    # Allowed Smart Edge Workshop sheet names ONLY
+    smart_ws_variants = ["NAMES", "NAME", "SMART EDGE", "CERTIFICATES"]
     smart_ws_sheet = find_sheet_variant(xls, smart_ws_variants) if gen_smart_ws else None
     if gen_smart_ws and smart_ws_sheet is None:
-        missing_required.append("SMART EDGE WORKSHOP (expected sheet name like 'SMART EDGE WORKSHOP')")
+        missing_required.append("SMART EDGE WORKSHOP (expected sheet name: Names / Name / Smart Edge / Certificates)")
 
     if missing_required:
         st.error(f"Missing sheets in Excel: {missing_required}")
