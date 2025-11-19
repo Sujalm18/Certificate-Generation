@@ -251,6 +251,19 @@ st.markdown("<div style='height:25px;'></div>", unsafe_allow_html=True)
 # --------------------------
 
 # --------------------------
+# Helper: robust sheet finder
+# --------------------------
+def find_sheet_exact(xls: pd.ExcelFile, target_upper: str):
+    """
+    Find a sheet name in xls.sheet_names that matches target_upper after strip().upper().
+    Returns the exact sheet name from xls.sheet_names or None if not found.
+    """
+    for s in xls.sheet_names:
+        if s.strip().upper() == target_upper:
+            return s
+    return None
+
+# --------------------------
 # GENERATE ZIP (progress)
 # --------------------------
 if st.button("Generate certificates ZIP"):
@@ -293,10 +306,39 @@ if st.button("Generate certificates ZIP"):
         st.error("Smart Edge sheet missing! Use Names / Name / Smart Edge / Certificates.")
         st.stop()
 
-    # read sheets
-    df_q = pd.read_excel(excel_file, sheet_name="QUALIFIED", dtype=object) if ("QUALIFIED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
-    df_p = pd.read_excel(excel_file, sheet_name="PARTICIPATED", dtype=object) if ("PARTICIPATED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
-    df_s = pd.read_excel(excel_file, sheet_name=smart_sheet, dtype=object) if smart_sheet else pd.DataFrame()
+    # --- Robust sheet reads (case-insensitive + trimmed) ---
+    # QUALIFIED
+    qualified_sheet_name = find_sheet_exact(xls, "QUALIFIED")
+    if qualified_sheet_name:
+        try:
+            df_q = pd.read_excel(xls, sheet_name=qualified_sheet_name, dtype=object)
+        except Exception as e:
+            st.error(f"Failed reading QUALIFIED sheet ('{qualified_sheet_name}'): {e}")
+            df_q = pd.DataFrame()
+    else:
+        df_q = pd.DataFrame()
+
+    # PARTICIPATED
+    participated_sheet_name = find_sheet_exact(xls, "PARTICIPATED")
+    if participated_sheet_name:
+        try:
+            df_p = pd.read_excel(xls, sheet_name=participated_sheet_name, dtype=object)
+        except Exception as e:
+            st.error(f"Failed reading PARTICIPATED sheet ('{participated_sheet_name}'): {e}")
+            df_p = pd.DataFrame()
+    else:
+        df_p = pd.DataFrame()
+
+    # SMART EDGE (we already found smart_sheet earlier if any allowed name matched)
+    if smart_sheet:
+        try:
+            df_s = pd.read_excel(xls, sheet_name=smart_sheet, dtype=object)
+        except Exception as e:
+            st.error(f"Failed reading Smart Edge sheet ('{smart_sheet}'): {e}")
+            df_s = pd.DataFrame()
+    else:
+        df_s = pd.DataFrame()
+    # --- end robust reads ---
 
     # build tasks
     tasks = []
