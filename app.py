@@ -17,15 +17,16 @@ import re
 st.set_page_config(page_title="Certificate Generator", layout="wide")
 
 # --------------------------
-# CENTERED LOGO (UI ONLY, NOT PDF)
+# SITE LOGO (UI ONLY, NOT PDF)
 # --------------------------
 LOGO_FILE = "logo.png"
 if Path(LOGO_FILE).exists():
     b64logo = base64.b64encode(Path(LOGO_FILE).read_bytes()).decode()
+    # centered & modest size
     st.markdown(
         f"""
-        <div style='display:flex; justify-content:center; margin-top:-20px; margin-bottom:-10px;'>
-            <img src="data:image/png;base64,{b64logo}" style="width:140px;" />
+        <div style='display:flex; justify-content:center; margin-top:-20px; margin-bottom:6px;'>
+            <img src="data:image/png;base64,{b64logo}" style="width:120px; max-width:25%; height:auto;" />
         </div>
         """,
         unsafe_allow_html=True
@@ -35,7 +36,7 @@ if Path(LOGO_FILE).exists():
 # TITLE
 # --------------------------
 st.markdown(
-    "<h1 style='text-align:center;'>PHN Certificate Generator</h1>",
+    "<h1 style='text-align:center; margin-top:0.1rem;'>PHN Certificate Generator</h1>",
     unsafe_allow_html=True
 )
 
@@ -125,7 +126,6 @@ def draw_name_on_template(template_bytes: bytes, name: str, x_cm: float, y_cm: f
         # scale font down if using truetype
         try:
             if hasattr(font, "path"):
-                # determine current font size
                 current_px = getattr(font, "size", font_px)
                 scale = max_w_px / text_w
                 new_px = max(8, int(round(current_px * scale)))
@@ -190,20 +190,20 @@ st.sidebar.header("Rasterize output (recommended)")
 rasterize = st.sidebar.checkbox("Rasterize certificates", value=True)
 
 st.sidebar.header("Position & font settings")
-X_CM = st.sidebar.number_input("X (cm from left)", value=float(DEFAULT_X_CM), format="%.2f", step=0.01)
-Y_CM = st.sidebar.number_input("Y (cm from bottom)", value=float(DEFAULT_Y_CM), format="%.2f", step=0.01)
-BASE_FONT_PT = st.sidebar.number_input("Base font size (pt)", value=float(DEFAULT_FONT_PT), step=1.0)
-MAX_WIDTH_CM = st.sidebar.number_input("Max name width (cm)", value=float(DEFAULT_MAX_WIDTH_CM), step=0.5)
+# enforce float defaults to avoid Streamlit mixed numeric type errors
+X_CM = float(st.sidebar.number_input("X (cm from left)", value=float(DEFAULT_X_CM), format="%.2f", step=0.01))
+Y_CM = float(st.sidebar.number_input("Y (cm from bottom)", value=float(DEFAULT_Y_CM), format="%.2f", step=0.01))
+BASE_FONT_PT = float(st.sidebar.number_input("Base font size (pt)", value=float(DEFAULT_FONT_PT), step=1.0))
+MAX_WIDTH_CM = float(st.sidebar.number_input("Max name width (cm)", value=float(DEFAULT_MAX_WIDTH_CM), step=0.5))
 
 # --------------------------
-# LIVE PREVIEW (robust & visible)
+# LIVE PREVIEW
 # --------------------------
 st.markdown("---")
 st.subheader("Live Preview")
 
 preview_name = st.text_input("Preview name", "Aarav Sharma")
 
-# choose which template to preview (shows options even if None)
 preview_option = st.selectbox("Template for preview", ["Qualified (upload or default)", "Participated (upload or default)", "Smart Edge (upload or default)"])
 
 preview_template_bytes = None
@@ -218,7 +218,8 @@ preview_col = st.container()
 if preview_template_bytes is not None:
     try:
         preview_img = draw_name_on_template(preview_template_bytes, preview_name, X_CM, Y_CM, BASE_FONT_PT, MAX_WIDTH_CM)
-        preview_col.image(preview_img, caption="Live certificate preview (rasterized)", use_column_width=True)
+        # use_container_width to avoid deprecation warning
+        preview_col.image(preview_img, caption="Live certificate preview (rasterized)", use_container_width=True)
     except Exception as e:
         preview_col.error(f"Preview error: {e}")
 else:
@@ -238,33 +239,17 @@ with col3:
     gen_smartedge = st.checkbox("Generate SMART EDGE WORKSHOP", value=False)
 
 st.markdown(
-    "<div style='text-align:center; opacity:0.75; margin-top:10px;'>"
+    "<div style='text-align:center; opacity:0.85; margin-top:10px;'>"
     "Select which certificates to include in the ZIP. Uncheck to exclude a group."
     "</div>",
     unsafe_allow_html=True
 )
 
-# --------------------------
-# ----- ADDED SPACING -----
-# Add a vertical spacer (25px) before the Generate button
-st.markdown("<div style='height:25px;'></div>", unsafe_allow_html=True)
-# --------------------------
+# add vertical space before button
+st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
 
 # --------------------------
-# Helper: robust sheet finder
-# --------------------------
-def find_sheet_exact(xls: pd.ExcelFile, target_upper: str):
-    """
-    Find a sheet name in xls.sheet_names that matches target_upper after strip().upper().
-    Returns the exact sheet name from xls.sheet_names or None if not found.
-    """
-    for s in xls.sheet_names:
-        if s.strip().upper() == target_upper:
-            return s
-    return None
-
-# --------------------------
-# GENERATE ZIP (progress)
+# GENERATE ZIP
 # --------------------------
 if st.button("Generate certificates ZIP"):
 
@@ -306,39 +291,10 @@ if st.button("Generate certificates ZIP"):
         st.error("Smart Edge sheet missing! Use Names / Name / Smart Edge / Certificates.")
         st.stop()
 
-    # --- Robust sheet reads (case-insensitive + trimmed) ---
-    # QUALIFIED
-    qualified_sheet_name = find_sheet_exact(xls, "QUALIFIED")
-    if qualified_sheet_name:
-        try:
-            df_q = pd.read_excel(xls, sheet_name=qualified_sheet_name, dtype=object)
-        except Exception as e:
-            st.error(f"Failed reading QUALIFIED sheet ('{qualified_sheet_name}'): {e}")
-            df_q = pd.DataFrame()
-    else:
-        df_q = pd.DataFrame()
-
-    # PARTICIPATED
-    participated_sheet_name = find_sheet_exact(xls, "PARTICIPATED")
-    if participated_sheet_name:
-        try:
-            df_p = pd.read_excel(xls, sheet_name=participated_sheet_name, dtype=object)
-        except Exception as e:
-            st.error(f"Failed reading PARTICIPATED sheet ('{participated_sheet_name}'): {e}")
-            df_p = pd.DataFrame()
-    else:
-        df_p = pd.DataFrame()
-
-    # SMART EDGE (we already found smart_sheet earlier if any allowed name matched)
-    if smart_sheet:
-        try:
-            df_s = pd.read_excel(xls, sheet_name=smart_sheet, dtype=object)
-        except Exception as e:
-            st.error(f"Failed reading Smart Edge sheet ('{smart_sheet}'): {e}")
-            df_s = pd.DataFrame()
-    else:
-        df_s = pd.DataFrame()
-    # --- end robust reads ---
+    # read sheets
+    df_q = pd.read_excel(excel_file, sheet_name="QUALIFIED", dtype=object) if ("QUALIFIED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
+    df_p = pd.read_excel(excel_file, sheet_name="PARTICIPATED", dtype=object) if ("PARTICIPATED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
+    df_s = pd.read_excel(excel_file, sheet_name=smart_sheet, dtype=object) if smart_sheet else pd.DataFrame()
 
     # build tasks
     tasks = []
@@ -377,6 +333,9 @@ if st.button("Generate certificates ZIP"):
             group_progress_bars[g] = st.progress(0.0)
 
     zip_buf = io.BytesIO()
+    # Keep track of used filenames to prevent duplicates in ZIP
+    used_names = {}
+
     with ZipFile(zip_buf, "w") as zf:
         for idx, (group, name) in enumerate(tasks, start=1):
             group_done[group] += 1
@@ -389,7 +348,7 @@ if st.button("Generate certificates ZIP"):
                 if total_g > 0:
                     group_progress_bars[g].progress(done / total_g)
 
-            time.sleep(0.01)
+            time.sleep(0.005)
 
             try:
                 if group == "QUALIFIED":
@@ -401,12 +360,29 @@ if st.button("Generate certificates ZIP"):
 
                 img = draw_name_on_template(tpl_bytes, name, X_CM, Y_CM, BASE_FONT_PT, MAX_WIDTH_CM)
                 pdf_bytes = image_to_pdf_bytes(img)
-                safe_name = safe_filename(name)
-                zf.writestr(f"{group}/{safe_name}.pdf", pdf_bytes)
+
+                base_name = safe_filename(name)
+                # ensure uniqueness within group folder
+                key = f"{group}/{base_name}"
+                count = used_names.get(key, 0)
+                if count == 0:
+                    filename = f"{group}/{base_name}.pdf"
+                else:
+                    filename = f"{group}/{base_name}_{count}.pdf"
+                used_names[key] = count + 1
+
+                zf.writestr(filename, pdf_bytes)
             except Exception as e:
                 err_msg = f"Failed to generate for {name}: {e}"
-                safe_name = safe_filename(name)
-                zf.writestr(f"{group}/{safe_name}_ERROR.txt", err_msg.encode("utf-8"))
+                base_name = safe_filename(name) or "error"
+                key = f"{group}/{base_name}_ERROR"
+                count = used_names.get(key, 0)
+                if count == 0:
+                    filename = f"{group}/{base_name}_ERROR.txt"
+                else:
+                    filename = f"{group}/{base_name}_ERROR_{count}.txt"
+                used_names[key] = count + 1
+                zf.writestr(filename, err_msg.encode("utf-8"))
 
             overall_progress.progress(idx / total)
 
