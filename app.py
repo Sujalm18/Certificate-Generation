@@ -22,7 +22,6 @@ st.set_page_config(page_title="Certificate Generator", layout="wide")
 LOGO_FILE = "logo.png"
 if Path(LOGO_FILE).exists():
     b64logo = base64.b64encode(Path(LOGO_FILE).read_bytes()).decode()
-    # centered & modest size
     st.markdown(
         f"""
         <div style='display:flex; justify-content:center; margin-top:-20px; margin-bottom:6px;'>
@@ -36,7 +35,7 @@ if Path(LOGO_FILE).exists():
 # TITLE
 # --------------------------
 st.markdown(
-    "<h1 style='text-align:center; margin-top:0.1rem;'>PHN Certificate Generator</h1>",
+    "<h1 style='text-align:center; margin-top:0.1rem;'>Certificate Generator — QUALIFIED, PARTICIPATED & SMART EDGE WORKSHOP</h1>",
     unsafe_allow_html=True
 )
 
@@ -46,7 +45,6 @@ st.markdown(
 DEFAULT_FONT_FILE = "Times New Roman Italic.ttf"
 FONT_PATH = Path(DEFAULT_FONT_FILE)
 
-# default templates in repo root (exact filenames you provided)
 DEFAULT_QUALIFIED = "phnscholar qualified certificate.pdf"
 DEFAULT_PARTICIPATED = "phnscholar participation certificate.pdf"
 DEFAULT_SMARTEDGE = "smart edge workshop certificate.pdf"
@@ -203,7 +201,6 @@ st.markdown("---")
 st.subheader("Live Preview")
 
 preview_name = st.text_input("Preview name", "Aarav Sharma")
-
 preview_option = st.selectbox("Template for preview", ["Qualified (upload or default)", "Participated (upload or default)", "Smart Edge (upload or default)"])
 
 preview_template_bytes = None
@@ -218,8 +215,7 @@ preview_col = st.container()
 if preview_template_bytes is not None:
     try:
         preview_img = draw_name_on_template(preview_template_bytes, preview_name, X_CM, Y_CM, BASE_FONT_PT, MAX_WIDTH_CM)
-        # use_container_width to avoid deprecation warning
-        preview_col.image(preview_img, caption="Live certificate preview (rasterized)", use_container_width=True)
+        preview_col.image(preview_img, caption="Live certificate preview (rasterized). Adjust X/Y/font in sidebar.", use_container_width=True)
     except Exception as e:
         preview_col.error(f"Preview error: {e}")
 else:
@@ -247,6 +243,38 @@ st.markdown(
 
 # add vertical space before button
 st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+
+# --------------------------
+# HELPER: detect ID column in a dataframe
+# --------------------------
+COMMON_ID_HEADERS = [
+    "id", "roll", "reg", "regno", "registration", "registrationno", "registration_no",
+    "uid", "unique", "uniqueid", "unique_id", "email", "enrollment", "enrollmentno",
+    "studentid", "student_id", "srno", "sr_no", "admission", "admissionno"
+]
+
+def detect_id_column(df: pd.DataFrame):
+    if df is None or df.empty:
+        return None
+    cols = list(df.columns)
+    # normalize and map original name
+    norm_map = {c: c for c in cols}
+    for c in cols:
+        norm = re.sub(r'[^a-z0-9]', '', str(c).strip().lower())
+        norm_map[norm] = c
+    for candidate in COMMON_ID_HEADERS:
+        cand_norm = re.sub(r'[^a-z0-9]', '', candidate)
+        if cand_norm in norm_map:
+            return norm_map[cand_norm]
+    # fallback: look for any column with strictly unique non-null values and short dtype
+    for c in cols:
+        try:
+            series = df[c].dropna().astype(str)
+            if len(series) > 0 and series.nunique() == len(series) and series.str.len().mean() <= 60:
+                return c
+        except Exception:
+            continue
+    return None
 
 # --------------------------
 # GENERATE ZIP
@@ -296,6 +324,27 @@ if st.button("Generate certificates ZIP"):
     df_p = pd.read_excel(excel_file, sheet_name="PARTICIPATED", dtype=object) if ("PARTICIPATED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
     df_s = pd.read_excel(excel_file, sheet_name=smart_sheet, dtype=object) if smart_sheet else pd.DataFrame()
 
+    # detect id columns per sheet
+    id_q = detect_id_column(df_q) if not df_q.empty else None
+    id_p = detect_id_column(df_p) if not df_p.empty else None
+    id_s = detect_id_column(df_s) if not df_s.empty else None
+
+    # notify user which ID columns were detected
+    detected_msgs = []
+    if id_q:
+        detected_msgs.append(f"QUALIFIED: using ID column '{id_q}'")
+    else:
+        detected_msgs.append("QUALIFIED: no ID column detected")
+    if id_p:
+        detected_msgs.append(f"PARTICIPATED: using ID column '{id_p}'")
+    else:
+        detected_msgs.append("PARTICIPATED: no ID column detected")
+    if id_s:
+        detected_msgs.append(f"SMART EDGE: using ID column '{id_s}'")
+    else:
+        detected_msgs.append("SMART EDGE: no ID column detected")
+    st.info(" | ".join(detected_msgs))
+
     # build tasks
     tasks = []
     group_counts = {"QUALIFIED": 0, "PARTICIPATED": 0, "SMART_EDGE_WORKSHOP": 0}
@@ -303,17 +352,30 @@ if st.button("Generate certificates ZIP"):
     if gen_qualified and not df_q.empty:
         q_names = df_q.iloc[:,0].dropna().astype(str).tolist()
         group_counts["QUALIFIED"] = len(q_names)
-        tasks += [("QUALIFIED", n.strip()) for n in q_names]
+        # fetch id values aligned to names (if id exists)
+        if id_q:
+            q_ids = df_q[id_q].astype(str).fillna("").tolist()
+            tasks += [("QUALIFIED", n.strip(), q_ids[i].strip() if i < len(q_ids) else "") for i, n in enumerate(q_names)]
+        else:
+            tasks += [("QUALIFIED", n.strip(), "") for n in q_names]
 
     if gen_participated and not df_p.empty:
         p_names = df_p.iloc[:,0].dropna().astype(str).tolist()
         group_counts["PARTICIPATED"] = len(p_names)
-        tasks += [("PARTICIPATED", n.strip()) for n in p_names]
+        if id_p:
+            p_ids = df_p[id_p].astype(str).fillna("").tolist()
+            tasks += [("PARTICIPATED", n.strip(), p_ids[i].strip() if i < len(p_ids) else "") for i, n in enumerate(p_names)]
+        else:
+            tasks += [("PARTICIPATED", n.strip(), "") for n in p_names]
 
     if gen_smartedge and not df_s.empty:
         s_names = df_s.iloc[:,0].dropna().astype(str).tolist()
         group_counts["SMART_EDGE_WORKSHOP"] = len(s_names)
-        tasks += [("SMART_EDGE_WORKSHOP", n.strip()) for n in s_names]
+        if id_s:
+            s_ids = df_s[id_s].astype(str).fillna("").tolist()
+            tasks += [("SMART_EDGE_WORKSHOP", n.strip(), s_ids[i].strip() if i < len(s_ids) else "") for i, n in enumerate(s_names)]
+        else:
+            tasks += [("SMART_EDGE_WORKSHOP", n.strip(), "") for n in s_names]
 
     if len(tasks) == 0:
         st.warning("No names found in the selected sheets. Nothing to generate.")
@@ -337,7 +399,7 @@ if st.button("Generate certificates ZIP"):
     used_names = {}
 
     with ZipFile(zip_buf, "w") as zf:
-        for idx, (group, name) in enumerate(tasks, start=1):
+        for idx, (group, name, idval) in enumerate(tasks, start=1):
             group_done[group] += 1
             overall_status.info(f"Overall: {idx}/{total} — Generating {group} / {name}")
 
@@ -361,15 +423,28 @@ if st.button("Generate certificates ZIP"):
                 img = draw_name_on_template(tpl_bytes, name, X_CM, Y_CM, BASE_FONT_PT, MAX_WIDTH_CM)
                 pdf_bytes = image_to_pdf_bytes(img)
 
-                base_name = safe_filename(name)
-                # ensure uniqueness within group folder
-                key = f"{group}/{base_name}"
-                count = used_names.get(key, 0)
-                if count == 0:
-                    filename = f"{group}/{base_name}.pdf"
+                base_name = safe_filename(name) or "name"
+                id_part = safe_filename(idval) if idval else None
+
+                # Use ID column value if present to create nicer filename: NAME_ID.pdf
+                if id_part:
+                    filename = f"{group}/{base_name}_{id_part}.pdf"
+                    # ensure uniqueness if same name+id appears more than once
+                    if filename in used_names:
+                        count = used_names[filename]
+                        filename = f"{group}/{base_name}_{id_part}_{count}.pdf"
+                        used_names[filename] = count + 1
+                    else:
+                        used_names[filename] = 1
                 else:
-                    filename = f"{group}/{base_name}_{count}.pdf"
-                used_names[key] = count + 1
+                    # fallback to numeric suffixing to avoid zip collisions
+                    key = f"{group}/{base_name}"
+                    count = used_names.get(key, 0)
+                    if count == 0:
+                        filename = f"{group}/{base_name}.pdf"
+                    else:
+                        filename = f"{group}/{base_name}_{count}.pdf"
+                    used_names[key] = count + 1
 
                 zf.writestr(filename, pdf_bytes)
             except Exception as e:
@@ -391,4 +466,10 @@ if st.button("Generate certificates ZIP"):
     st.balloons()
     st.success(f"Done — {total} certificates generated (errors, if any, are in ZIP).")
     zip_buf.seek(0)
+
+    # Inform user about duplicate-handling behavior
+    st.info("Filenames use detected ID columns when available (NAME_ID.pdf). If no ID is found, the app appends `_1`, `_2` etc. to avoid collisions.")
+
+    st.caption("Tip: To get clean filenames, include an ID/roll/reg/enrollment/email column in your Excel. The app auto-detects common headers.")
+
     st.download_button("Download certificates ZIP", data=zip_buf.getvalue(), file_name="Certificates.zip", mime="application/zip")
