@@ -12,7 +12,7 @@ import time
 # --------------------------
 # PAGE CONFIG
 # --------------------------
-st.set_page_config(page_title=" Certificate Generator", layout="wide")
+st.set_page_config(page_title="Certificate Generator", layout="wide")
 
 # SMALL CENTERED LOGO (Streamlit only)
 # --------------------------
@@ -32,16 +32,6 @@ if logo_path.exists():
         st.warning(f"Logo found but could not be displayed: {e}")
 else:
     st.info("logo.png not found in repository.")
-
-
-# --------------------------
-# TITLE
-# --------------------------
-st.markdown(
-    "<h1 style='text-align:center;'>PHN Certificate Generator</h1>",
-    unsafe_allow_html=True
-)
-
 
 # -------------------------------------------
 # CONSTANTS
