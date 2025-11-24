@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import fitz  # PyMuPDF
@@ -45,7 +44,6 @@ st.markdown(
 DEFAULT_FONT_FILE = "Times New Roman Italic.ttf"
 FONT_PATH = Path(DEFAULT_FONT_FILE)
 
-# default templates in repo root (exact filenames you provided)
 DEFAULT_QUALIFIED = "phnscholar qualified certificate.pdf"
 DEFAULT_PARTICIPATED = "phnscholar participation certificate.pdf"
 DEFAULT_SMARTEDGE = "smart edge workshop certificate.pdf"
@@ -66,39 +64,16 @@ def safe_filename(s: str) -> str:
     return s[:200]
 
 # --------------------------
-# MESSAGES
-# --------------------------
-FUNNY_ERRORS = [
-    "You selected NOTHING. I can't make certificates out of vibes 😅",
-    "Did you mean invisible certificates? Pick at least one checkbox! 🫥",
-    "No selection detected. My crystal ball is on lunch. Pick something! 🔮🍔",
-    "I need a target — pick a group or I'll generate imaginary friends. 👻",
-    "Zero choices found. The app prefers options, not silence. 😶‍🌫️"
-]
-
-MISSING_TEMPLATE_ERRORS = [
-    "Template missing! Even superheroes need costumes — upload the PDF. 🦸‍♂️",
-    "No template found. Please upload the PDF unless you want blank sheets. 📝❌",
-]
-
-MISSING_SHEET_ERRORS = [
-    "Excel missing the needed sheet. Did it go on vacation? 🏖️",
-    "No matching sheet — try renaming it to Names / Name / Smart Edge / Certificates.",
-]
-
-# --------------------------
 # DRAW / PDF HELPERS
 # --------------------------
 def draw_name_on_template(template_bytes: bytes, name: str, x_cm: float, y_cm: float,
                           font_size_pt: float, max_width_cm: float) -> Image.Image:
-    """Render first page of PDF template to image, draw centered name at x_cm,y_cm from left/bottom."""
     doc = fitz.open(stream=template_bytes, filetype="pdf")
     page = doc[0]
     pix = page.get_pixmap(dpi=DPI)
     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
     draw = ImageDraw.Draw(img)
 
-    # load TTF if available
     if FONT_PATH.exists():
         try:
             font_px = max(8, int(round(font_size_pt * DPI / 72.0)))
@@ -112,7 +87,6 @@ def draw_name_on_template(template_bytes: bytes, name: str, x_cm: float, y_cm: f
     y_px_from_bottom = cm_to_px(y_cm)
     y_px = img.height - y_px_from_bottom
 
-    # compute text size (try textbbox, fallback to textsize)
     try:
         bbox = draw.textbbox((0, 0), name, font=font)
         text_w = bbox[2] - bbox[0]
@@ -122,10 +96,8 @@ def draw_name_on_template(template_bytes: bytes, name: str, x_cm: float, y_cm: f
 
     max_w_px = cm_to_px(max_width_cm)
     if text_w > max_w_px:
-        # scale font down if using truetype
         try:
             if hasattr(font, "path"):
-                # determine current font size
                 current_px = getattr(font, "size", font_px)
                 scale = max_w_px / text_w
                 new_px = max(8, int(round(current_px * scale)))
@@ -139,7 +111,6 @@ def draw_name_on_template(template_bytes: bytes, name: str, x_cm: float, y_cm: f
     draw_x = int(round(x_px - text_w / 2.0))
     draw_y = int(round(y_px - text_h / 2.0))
 
-    # draw white outline for contrast then black fill
     outline_color = "white"
     fill_color = "black"
     for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
@@ -164,12 +135,10 @@ uploaded_part = st.file_uploader("Participated template PDF (optional)", type=["
 uploaded_smart = st.file_uploader("SMART EDGE template PDF (optional)", type=["pdf"])
 ttf_upload = st.file_uploader("Times New Roman Italic TTF (optional)", type=["ttf","otf"])
 
-# read uploaded bytes once
 qual_bytes = uploaded_qual.read() if uploaded_qual else None
 part_bytes = uploaded_part.read() if uploaded_part else None
 smart_bytes = uploaded_smart.read() if uploaded_smart else None
 
-# fallback to defaults in repo root if upload not provided
 if qual_bytes is None and Path(DEFAULT_QUALIFIED).exists():
     qual_bytes = Path(DEFAULT_QUALIFIED).read_bytes()
 if part_bytes is None and Path(DEFAULT_PARTICIPATED).exists():
@@ -177,14 +146,13 @@ if part_bytes is None and Path(DEFAULT_PARTICIPATED).exists():
 if smart_bytes is None and Path(DEFAULT_SMARTEDGE).exists():
     smart_bytes = Path(DEFAULT_SMARTEDGE).read_bytes()
 
-# optionally override TTF (save to disk so PIL can load)
 if ttf_upload:
     with open("uploaded_times.ttf", "wb") as f:
         f.write(ttf_upload.getbuffer())
     FONT_PATH = Path("uploaded_times.ttf")
 
 # --------------------------
-# SIDEBAR: position & font
+# SIDEBAR
 # --------------------------
 st.sidebar.header("Rasterize output (recommended)")
 rasterize = st.sidebar.checkbox("Rasterize certificates", value=True)
@@ -195,15 +163,11 @@ Y_CM = st.sidebar.number_input("Y (cm from bottom)", value=float(DEFAULT_Y_CM), 
 BASE_FONT_PT = st.sidebar.number_input("Base font size (pt)", value=float(DEFAULT_FONT_PT), step=1.0)
 MAX_WIDTH_CM = st.sidebar.number_input("Max name width (cm)", value=float(DEFAULT_MAX_WIDTH_CM), step=0.5)
 
-# --------------------------
-# LIVE PREVIEW (robust & visible)
-# --------------------------
 st.markdown("---")
 st.subheader("Live Preview")
 
 preview_name = st.text_input("Preview name", "Aarav Sharma")
 
-# choose which template to preview (shows options even if None)
 preview_option = st.selectbox("Template for preview", ["Qualified (upload or default)", "Participated (upload or default)", "Smart Edge (upload or default)"])
 
 preview_template_bytes = None
@@ -224,9 +188,6 @@ if preview_template_bytes is not None:
 else:
     preview_col.info("Upload or provide at least one template (or ensure default templates exist in repo root) to enable preview.")
 
-# --------------------------
-# CHECKBOXES & centered caption
-# --------------------------
 st.markdown("---")
 st.markdown("### 2) Select which certificates to generate")
 col1, col2, col3 = st.columns([1,1,1])
@@ -244,12 +205,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --------------------------
-# GENERATE ZIP (progress)
-# --------------------------
 if st.button("Generate certificates ZIP"):
 
-    # funny error if nothing selected
     if not (gen_qualified or gen_participated or gen_smartedge):
         st.error(random.choice(FUNNY_ERRORS))
         st.stop()
@@ -258,14 +215,12 @@ if st.button("Generate certificates ZIP"):
         st.error(random.choice(MISSING_SHEET_ERRORS))
         st.stop()
 
-    # read excel
     try:
         xls = pd.ExcelFile(excel_file)
     except Exception as e:
         st.error(f"Cannot read Excel: {e}")
         st.stop()
 
-    # Smart Edge allowed sheet names
     smart_allowed = {"NAMES", "NAME", "SMART EDGE", "CERTIFICATES"}
     smart_sheet = None
     for s in xls.sheet_names:
@@ -273,7 +228,6 @@ if st.button("Generate certificates ZIP"):
             smart_sheet = s
             break
 
-    # template checks
     if gen_qualified and not qual_bytes:
         st.error(MISSING_TEMPLATE_ERRORS[0] + " (Qualified)")
         st.stop()
@@ -287,27 +241,28 @@ if st.button("Generate certificates ZIP"):
         st.error("Smart Edge sheet missing! Use Names / Name / Smart Edge / Certificates.")
         st.stop()
 
-    # read sheets
-    df_q = pd.read_excel(excel_file, sheet_name="QUALIFIED", dtype=object) if ("QUALIFIED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
-    df_p = pd.read_excel(excel_file, sheet_name="PARTICIPATED", dtype=object) if ("PARTICIPATED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
-    df_s = pd.read_excel(excel_file, sheet_name=smart_sheet, dtype=object) if smart_sheet else pd.DataFrame()
+    # map sheet names uppercase to original
+    sheet_map = {s.upper(): s for s in xls.sheet_names}
 
-    # build tasks
+    df_q = pd.read_excel(excel_file, sheet_name=sheet_map.get("QUALIFIED", None), dtype=object) if gen_qualified and "QUALIFIED" in sheet_map else pd.DataFrame()
+    df_p = pd.read_excel(excel_file, sheet_name=sheet_map.get("PARTICIPATED", None), dtype=object) if gen_participated and "PARTICIPATED" in sheet_map else pd.DataFrame()
+    df_s = pd.read_excel(excel_file, sheet_name=smart_sheet, dtype=object) if gen_smartedge and smart_sheet else pd.DataFrame()
+
     tasks = []
     group_counts = {"QUALIFIED": 0, "PARTICIPATED": 0, "SMART_EDGE_WORKSHOP": 0}
 
     if gen_qualified and not df_q.empty:
-        q_names = df_q.iloc[:,0].dropna().astype(str).tolist()
+        q_names = df_q.iloc[:, 0].dropna().astype(str).tolist()
         group_counts["QUALIFIED"] = len(q_names)
         tasks += [("QUALIFIED", n.strip()) for n in q_names]
 
     if gen_participated and not df_p.empty:
-        p_names = df_p.iloc[:,0].dropna().astype(str).tolist()
+        p_names = df_p.iloc[:, 0].dropna().astype(str).tolist()
         group_counts["PARTICIPATED"] = len(p_names)
         tasks += [("PARTICIPATED", n.strip()) for n in p_names]
 
     if gen_smartedge and not df_s.empty:
-        s_names = df_s.iloc[:,0].dropna().astype(str).tolist()
+        s_names = df_s.iloc[:, 0].dropna().astype(str).tolist()
         group_counts["SMART_EDGE_WORKSHOP"] = len(s_names)
         tasks += [("SMART_EDGE_WORKSHOP", n.strip()) for n in s_names]
 
@@ -319,7 +274,6 @@ if st.button("Generate certificates ZIP"):
     overall_progress = st.progress(0.0)
     overall_status = st.empty()
 
-    # per-group placeholders
     group_done = {g: 0 for g in group_counts}
     group_status_placeholders = {}
     group_progress_bars = {}
@@ -367,4 +321,4 @@ if st.button("Generate certificates ZIP"):
     st.balloons()
     st.success(f"Done — {total} certificates generated (errors, if any, are in ZIP).")
     zip_buf.seek(0)
-    st.download_button("Download certificates ZIP", data=zip_buf.getvalue(), file_name="Certificates.zip", mime="application/zip")
+    st.download_button("Download certificates ZIP", data=zip_buf, file_name="Certificates.zip", mime="application/zip")
