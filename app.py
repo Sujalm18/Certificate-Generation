@@ -16,7 +16,7 @@ import re
 st.set_page_config(page_title="Certificate Generator", layout="wide")
 
 # --------------------------
-# CENTERED LOGO (UI ONLY, NOT PDF)
+# CENTERED LOGO (UI ONLY)
 # --------------------------
 LOGO_FILE = "logo.png"
 if Path(LOGO_FILE).exists():
@@ -163,6 +163,9 @@ Y_CM = st.sidebar.number_input("Y (cm from bottom)", value=float(DEFAULT_Y_CM), 
 BASE_FONT_PT = st.sidebar.number_input("Base font size (pt)", value=float(DEFAULT_FONT_PT), step=1.0)
 MAX_WIDTH_CM = st.sidebar.number_input("Max name width (cm)", value=float(DEFAULT_MAX_WIDTH_CM), step=0.5)
 
+# --------------------------
+# LIVE PREVIEW
+# --------------------------
 st.markdown("---")
 st.subheader("Live Preview")
 
@@ -182,12 +185,15 @@ preview_col = st.container()
 if preview_template_bytes is not None:
     try:
         preview_img = draw_name_on_template(preview_template_bytes, preview_name, X_CM, Y_CM, BASE_FONT_PT, MAX_WIDTH_CM)
-        preview_col.image(preview_img, caption="Live certificate preview (rasterized)", use_column_width=True)
+        preview_col.image(preview_img, caption="Live certificate preview (rasterized)", use_container_width=True)
     except Exception as e:
         preview_col.error(f"Preview error: {e}")
 else:
     preview_col.info("Upload or provide at least one template (or ensure default templates exist in repo root) to enable preview.")
 
+# --------------------------
+# CHECKBOXES & caption
+# --------------------------
 st.markdown("---")
 st.markdown("### 2) Select which certificates to generate")
 col1, col2, col3 = st.columns([1,1,1])
@@ -205,6 +211,9 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# --------------------------
+# GENERATE ZIP
+# --------------------------
 if st.button("Generate certificates ZIP"):
 
     if not (gen_qualified or gen_participated or gen_smartedge):
@@ -241,7 +250,6 @@ if st.button("Generate certificates ZIP"):
         st.error("Smart Edge sheet missing! Use Names / Name / Smart Edge / Certificates.")
         st.stop()
 
-    # map sheet names uppercase to original
     sheet_map = {s.upper(): s for s in xls.sheet_names}
 
     df_q = pd.read_excel(excel_file, sheet_name=sheet_map.get("QUALIFIED", None), dtype=object) if gen_qualified and "QUALIFIED" in sheet_map else pd.DataFrame()
