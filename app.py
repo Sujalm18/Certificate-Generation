@@ -12,7 +12,7 @@ import time
 # --------------------------
 # PAGE CONFIG
 # --------------------------
-st.set_page_config(page_title="Certificate Generator", layout="wide")
+st.set_page_config(page_title=" Certificate Generator", layout="wide")
 
 # SMALL CENTERED LOGO (Streamlit only)
 # --------------------------
