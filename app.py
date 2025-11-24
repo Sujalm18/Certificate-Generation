@@ -29,7 +29,7 @@ if logo_path.exists():
             """,
             unsafe_allow_html=True
         )
-        st.image(img, width=120, use_column_width=False)
+        st.image(img, width=60, use_column_width=False)
         st.markdown("</div>", unsafe_allow_html=True)
     except Exception as e:
         st.warning(f"Logo found but could not be loaded: {e}")
