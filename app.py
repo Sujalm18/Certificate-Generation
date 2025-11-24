@@ -138,7 +138,7 @@ logo_path = Path("logo.png")
 if logo_path.exists():
     try:
         img_logo = Image.open(logo_path)
-        c1, c2, c3 = st.columns([1, 2, 1])
+        c1, c2, c3 = st.columns([1, 0.2, 1])
         with c2:
             # small width keeps logo small and centered column centers it
             st.image(img_logo, width=64, use_column_width=False)
