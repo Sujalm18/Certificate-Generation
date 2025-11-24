@@ -14,14 +14,6 @@ import time
 # --------------------------
 st.set_page_config(page_title="Certificate Generator", layout="wide")
 
-# --------------------------
-# SITE LOGO (Streamlit UI only — NOT inserted into PDFs)
-# --------------------------
-# Path to your logo inside the repo
-# --------------------------
-# SITE LOGO (UI only — not added to PDFs)
-# --------------------------
-# --------------------------
 # SMALL CENTERED LOGO (Streamlit only)
 # --------------------------
 from PIL import Image
@@ -31,13 +23,11 @@ logo_path = Path("logo.png")
 if logo_path.exists():
     try:
         img = Image.open(logo_path)
-        st.image(img, width=45)   # <-- SUPER SMALL (45px)
+        st.image(img, width=60)   # <-- SUPER SMALL (45px)
     except:
         st.warning("Logo found but could not be loaded.")
 else:
     st.info("logo.png not found. Add it to the root directory.")
-
-
 
 # --------------------------
 # TITLE
