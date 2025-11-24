@@ -21,26 +21,22 @@ st.set_page_config(page_title="Certificate Generator", layout="wide")
 # --------------------------
 # SITE LOGO (UI only — not added to PDFs)
 # --------------------------
+# --------------------------
+# SMALL CENTERED LOGO (Streamlit only)
+# --------------------------
+from PIL import Image
+
 logo_path = Path("logo.png")
 
 if logo_path.exists():
     try:
         img = Image.open(logo_path)
-
-        # Force a small size (70px width)
-        st.markdown(
-            """
-            <div style='text-align:center; margin-top:-35px; margin-bottom:-15px;'>
-            """,
-            unsafe_allow_html=True
-        )
-        st.image(img, width=20, use_column_width=False)   # <-- SMALL LOGO
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    except Exception as e:
-        st.warning(f"Logo found but could not be displayed: {e}")
+        st.image(img, width=45)   # <-- SUPER SMALL (45px)
+    except:
+        st.warning("Logo found but could not be loaded.")
 else:
-    st.info("logo.png not found in repo — please add it to the root directory.")
+    st.info("logo.png not found. Add it to the root directory.")
+
 
 
 # --------------------------
