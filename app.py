@@ -26,7 +26,7 @@ if logo_path.exists():
         # Create 3 equal columns and put the logo in the center one
         col1, col2, col3 = st.columns([1, 0.5, 1])
         with col2:
-            st.image(img, width=70)   # adjust size here (40–70 recommended)
+            st.image(img, width=100)   # adjust size here (40–70 recommended)
 
     except Exception as e:
         st.warning(f"Logo found but could not be displayed: {e}")
