@@ -24,7 +24,7 @@ if logo_path.exists():
         img = Image.open(logo_path)
 
         # Create 3 equal columns and put the logo in the center one
-        col1, col2, col3 = st.columns([1, 0.1, 1])
+        col1, col2, col3 = st.columns([1, 0.2, 1])
         with col2:
             st.image(img, width=190)   # adjust size here (40–70 recommended)
 
