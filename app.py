@@ -12,7 +12,10 @@ import time
 # --------------------------
 # PAGE CONFIG
 # --------------------------
-st.set_page_config(page_title="Certificate Generator", layout="wide")
+st.markdown(
+    "<h1 style='text-align:center;'> PHN Certificate Generator</h1>",
+    unsafe_allow_html=True
+)
 
 # SMALL CENTERED LOGO (Streamlit only)
 # --------------------------
