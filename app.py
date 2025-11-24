@@ -1,153 +1,313 @@
-# Updated app.py
-# - Safe, case-insensitive sheet detection when reading Excel
-# - Graceful fallbacks to empty DataFrame when sheet not present
-# - Centered, resizable logo using Streamlit columns (no raw HTML)
-# - Avoids deprecated "use_column_width" API by using width or explicit sizing
-
-import io
-import os
+# app.py
 import streamlit as st
 import pandas as pd
-from PIL import Image
-
-st.set_page_config(page_title="Certificate Generator (Updated)", layout="wide")
+import fitz  # PyMuPDF
+from pathlib import Path
+import io
+from PIL import Image, ImageDraw, ImageFont
+from zipfile import ZipFile
+import random
+import time
 
 # --------------------------
-# HELPERS
+# PAGE CONFIG & LOGO (SITE-ONLY)
 # --------------------------
+st.set_page_config(page_title="Certificate Generator", layout="wide")
+logo_path = Path("logo.png")
+if logo_path.exists():
+    st.markdown(
+        """
+        <div style='text-align:center; margin-top:-40px; margin-bottom:-20px;'>
+            <img src="logo.png" width="150">
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-def find_sheet_exact(xls: pd.ExcelFile, target_name: str):
-    """Find a sheet by name case-insensitively and ignoring surrounding whitespace.
-    Returns the actual sheet name if found, otherwise None.
-    """
-    target_up = target_name.strip().upper()
+st.markdown(
+    "<h1 style='text-align:center;'>Certificate Generator — QUALIFIED, PARTICIPATED & SMART EDGE WORKSHOP</h1>",
+    unsafe_allow_html=True
+)
+
+# --------------------------
+# CONSTANTS & DEFAULTS
+# --------------------------
+DEFAULT_FONT_FILE = "Times New Roman Italic.ttf"
+FONT_PATH = Path(DEFAULT_FONT_FILE)
+
+DEFAULT_X_CM = 10.46
+DEFAULT_Y_CM = 16.50
+DEFAULT_FONT_PT = 19
+DEFAULT_MAX_WIDTH_CM = 16
+DPI = 300
+
+def cm_to_px(cm, dpi=DPI):
+    return int((cm / 2.54) * dpi)
+
+# --------------------------
+# FUNNY MESSAGES
+# --------------------------
+FUNNY_ERRORS = [
+    "You selected NOTHING. I can't make certificates out of vibes 😅",
+    "Did you mean invisible certificates? Pick at least one checkbox! 🫥",
+    "No selection detected. My crystal ball is on lunch. Pick something! 🔮🍔",
+    "I need a target — pick a group or I'll generate imaginary friends. 👻",
+    "Zero choices found. The app prefers options, not silence. 😶‍🌫️"
+]
+
+MISSING_TEMPLATE_ERRORS = [
+    "Template missing! Even superheroes need costumes — upload the PDF. 🦸‍♂️",
+    "No template found. Please upload the PDF unless you want blank sheets. 📝❌",
+    "Template not uploaded — certificates won’t dress themselves. 👔"
+]
+
+MISSING_SHEET_ERRORS = [
+    "Excel missing the needed sheet. Did it go on vacation? 🏖️",
+    "Required sheet not found. Please use the correct sheet name. 📄",
+    "No matching sheet — try renaming it to Names / Name / Smart Edge / Certificates."
+]
+
+# --------------------------
+# IMAGE / PDF HELPERS
+# --------------------------
+def draw_name_on_template(template_bytes, name, x_cm, y_cm, font_size_pt, max_width_cm):
+    """Render PDF page to image, draw name onto it and return PIL Image"""
+    doc = fitz.open(stream=template_bytes, filetype="pdf")
+    page = doc[0]
+    pix = page.get_pixmap(dpi=DPI)
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    draw = ImageDraw.Draw(img)
+
+    # load TTF if available
+    if FONT_PATH.exists():
+        try:
+            font_px = max(8, int(round(font_size_pt * DPI / 72.0)))
+            font = ImageFont.truetype(str(FONT_PATH), font_px)
+        except Exception:
+            font = ImageFont.load_default()
+    else:
+        font = ImageFont.load_default()
+
+    # compute center coordinates (pixel)
+    x_px = cm_to_px(x_cm)
+    y_px_from_bottom = cm_to_px(y_cm)
+    y_px = img.height - y_px_from_bottom
+
+    # autoscale width to max_width_cm
+    try:
+        bbox = draw.textbbox((0, 0), name, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+    except Exception:
+        text_w, text_h = draw.textsize(name, font=font)
+
+    max_w_px = cm_to_px(max_width_cm)
+    if text_w > max_w_px:
+        # scale font size down
+        if hasattr(font, "path"):
+            scale = max_w_px / text_w
+            new_font_px = max(8, int(font.size * scale))
+            try:
+                font = ImageFont.truetype(str(FONT_PATH), new_font_px)
+            except Exception:
+                font = ImageFont.load_default()
+            try:
+                bbox = draw.textbbox((0, 0), name, font=font)
+                text_w = bbox[2] - bbox[0]
+                text_h = bbox[3] - bbox[1]
+            except Exception:
+                text_w, text_h = draw.textsize(name, font=font)
+
+    draw_x = int(round(x_px - text_w / 2.0))
+    draw_y = int(round(y_px - text_h / 2.0))
+
+    # draw outline for contrast
+    outline_color = "white"
+    fill_color = "black"
+    for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+        draw.text((draw_x+dx, draw_y+dy), name, font=font, fill=outline_color)
+    draw.text((draw_x, draw_y), name, font=font, fill=fill_color)
+
+    return img
+
+def image_to_pdf_bytes(img: Image.Image):
+    out = io.BytesIO()
+    img.convert("RGB").save(out, format="PDF")
+    return out.getvalue()
+
+# --------------------------
+# UI: Uploads & Controls
+# --------------------------
+st.header("1) Upload files (Excel must contain sheets QUALIFIED, PARTICIPATED and Smart Edge sheet)")
+
+excel_file = st.file_uploader("Upload Excel (.xlsx/.xls)", type=["xlsx", "xls"])
+qualified_pdf_file = st.file_uploader("Qualified template PDF (optional)", type=["pdf"])
+participated_pdf_file = st.file_uploader("Participated template PDF (optional)", type=["pdf"])
+smartedge_pdf_file = st.file_uploader("SMART EDGE template PDF (optional)", type=["pdf"])
+ttf_upload = st.file_uploader("Times New Roman Italic TTF (optional)", type=["ttf","otf"])
+site_logo_upload = st.file_uploader("Logo for website header only (optional)", type=["png","jpg","jpeg"])
+
+# override bundled font if user supplies TTF
+if ttf_upload:
+    with open("uploaded_times.ttf", "wb") as f:
+        f.write(ttf_upload.getbuffer())
+    FONT_PATH = Path("uploaded_times.ttf")
+
+# sidebar controls
+st.sidebar.header("Rasterize output (recommended)")
+rasterize = st.sidebar.checkbox("Rasterize certificates", value=True)
+
+st.sidebar.header("Position & font settings")
+X_CM = st.sidebar.number_input("X (cm from left)", value=DEFAULT_X_CM, format="%.2f", step=0.01)
+Y_CM = st.sidebar.number_input("Y (cm from bottom)", value=DEFAULT_Y_CM, format="%.2f", step=0.01)
+BASE_FONT_PT = st.sidebar.number_input("Base font size (pt)", value=DEFAULT_FONT_PT, step=1)
+MAX_WIDTH_CM = st.sidebar.number_input("Max name width (cm)", value=DEFAULT_MAX_WIDTH_CM, step=0.5)
+
+# --------------------------
+# CHECKBOXES & CENTERED CAPTION
+# --------------------------
+st.markdown("### 3) Generate and download final ZIP")
+st.write("Export options:")
+
+col1, col2, col3 = st.columns([1,1,1])
+with col1:
+    gen_qualified = st.checkbox("Generate QUALIFIED")
+with col2:
+    gen_participated = st.checkbox("Generate PARTICIPATED")
+with col3:
+    gen_smartedge = st.checkbox("Generate SMART EDGE WORKSHOP")
+
+st.markdown(
+    "<div style='text-align:center; opacity:0.75; margin-top:10px;'>"
+    "Select which certificates to include in the ZIP. Uncheck to exclude a group."
+    "</div>",
+    unsafe_allow_html=True
+)
+
+# --------------------------
+# GENERATION WITH PROGRESS (per-group subtotals + overall)
+# --------------------------
+if st.button("Generate certificates ZIP"):
+
+    # funny error if nothing selected
+    if not (gen_qualified or gen_participated or gen_smartedge):
+        st.error(random.choice(FUNNY_ERRORS))
+        st.stop()
+
+    if excel_file is None:
+        st.error(random.choice(MISSING_SHEET_ERRORS))
+        st.stop()
+
+    try:
+        xls = pd.ExcelFile(excel_file)
+    except Exception as e:
+        st.error(f"Cannot read Excel: {e}")
+        st.stop()
+
+    # Smart Edge allowed sheet names: Names / Name / Smart Edge / Certificates
+    smartedge_allowed = ["NAMES", "NAME", "SMART EDGE", "CERTIFICATES"]
+    smartedge_sheet = None
     for s in xls.sheet_names:
-        if s.strip().upper() == target_up:
-            return s
-    return None
-
-
-def read_sheet_safely(excel_path_or_buffer, sheet_target: str, dtype=None, **kwargs):
-    """Return (df, sheet_name_used).
-    If sheet not found returns (pd.DataFrame(), None).
-    """
-    try:
-        xls = pd.ExcelFile(excel_path_or_buffer)
-    except Exception as e:
-        st.error(f"Failed to open Excel file: {e}")
-        return pd.DataFrame(), None
-
-    sheet_name = find_sheet_exact(xls, sheet_target)
-    if sheet_name is None:
-        return pd.DataFrame(), None
-
-    try:
-        df = pd.read_excel(excel_path_or_buffer, sheet_name=sheet_name, dtype=dtype, **kwargs)
-        return df, sheet_name
-    except Exception as e:
-        st.error(f"Error reading sheet '{sheet_name}': {e}")
-        return pd.DataFrame(), sheet_name
-
-
-# --------------------------
-# LOGO (centered + resizable)
-# --------------------------
-
-with st.sidebar:
-    st.header("UI Settings")
-    logo_width = st.slider("Logo width (px)", min_value=50, max_value=500, value=150)
-    show_logo = st.checkbox("Show logo", value=True)
-
-if show_logo:
-    # Attempt to locate logo in repo (relative path). Adjust path as needed.
-    # Common places: ./logo.png, ./assets/logo.png, ./static/logo.png
-    possible_paths = [
-        "logo.png",
-        "assets/logo.png",
-        "static/logo.png",
-        "images/logo.png",
-        "./logo.png",
-    ]
-    logo_path = None
-    for p in possible_paths:
-        if os.path.exists(p):
-            logo_path = p
+        if s.strip().upper() in smartedge_allowed:
+            smartedge_sheet = s
             break
 
-    if logo_path:
-        try:
-            img = Image.open(logo_path)
-            # center using columns
-            col_left, col_middle, col_right = st.columns([1, 2, 1])
-            with col_middle:
-                st.image(img, width=logo_width)
-        except Exception as e:
-            st.warning(f"Could not load logo image: {e}")
-    else:
-        st.info("No logo file found in repo. Put logo.png at project root or update the path.")
+    # template checks
+    if gen_qualified and qualified_pdf_file is None:
+        st.error(random.choice(MISSING_TEMPLATE_ERRORS) + " (Qualified)")
+        st.stop()
+    if gen_participated and participated_pdf_file is None:
+        st.error(random.choice(MISSING_TEMPLATE_ERRORS) + " (Participated)")
+        st.stop()
+    if gen_smartedge and smartedge_pdf_file is None:
+        st.error(random.choice(MISSING_TEMPLATE_ERRORS) + " (Smart Edge)")
+        st.stop()
+    if gen_smartedge and smartedge_sheet is None:
+        st.error(random.choice(MISSING_SHEET_ERRORS) + " (Smart Edge sheet must be one of: Names / Name / Smart Edge / Certificates)")
+        st.stop()
 
-# --------------------------
-# UPLOAD / EXCEL handling
-# --------------------------
+    # read dataframes (if sheet exists)
+    df_q = pd.read_excel(excel_file, sheet_name="QUALIFIED", dtype=object) if ("QUALIFIED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
+    df_p = pd.read_excel(excel_file, sheet_name="PARTICIPATED", dtype=object) if ("PARTICIPATED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
+    df_s = pd.read_excel(excel_file, sheet_name=smartedge_sheet, dtype=object) if smartedge_sheet else pd.DataFrame()
 
-st.title("Certificate Generator (Safe Excel read)")
+    # build tasks per group
+    tasks = []
+    group_counts = {"QUALIFIED": 0, "PARTICIPATED": 0, "SMART_EDGE_WORKSHOP": 0}
 
-uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx", "xls"], accept_multiple_files=False)
+    if gen_qualified and not df_q.empty:
+        q_names = df_q.iloc[:,0].dropna().astype(str).tolist()
+        group_counts["QUALIFIED"] = len(q_names)
+        tasks += [("QUALIFIED", n.strip()) for n in q_names]
 
-# show useful debug/info in an expander
-with st.expander("Excel file diagnostics"):
-    if uploaded_file is None:
-        st.write("No file uploaded yet.")
-    else:
-        try:
-            xls = pd.ExcelFile(uploaded_file)
-            st.write("Detected sheets:", xls.sheet_names)
-        except Exception as e:
-            st.write("Failed to read excel file:", e)
+    if gen_participated and not df_p.empty:
+        p_names = df_p.iloc[:,0].dropna().astype(str).tolist()
+        group_counts["PARTICIPATED"] = len(p_names)
+        tasks += [("PARTICIPATED", n.strip()) for n in p_names]
 
+    if gen_smartedge and not df_s.empty:
+        s_names = df_s.iloc[:,0].dropna().astype(str).tolist()
+        group_counts["SMART_EDGE_WORKSHOP"] = len(s_names)
+        tasks += [("SMART_EDGE_WORKSHOP", n.strip()) for n in s_names]
 
-if uploaded_file is not None:
-    # Read sheets safely using the helper
-    df_qualified, qualified_sheet = read_sheet_safely(uploaded_file, "QUALIFIED", dtype=object)
-    # NOTE: pd.ExcelFile consumes the buffer's pointer; to reuse uploaded_file we need to reset buffer
-    # UploadedFile is a BytesIO-like object; rewind it between reads
-    try:
-        uploaded_file.seek(0)
-    except Exception:
-        pass
+    if len(tasks) == 0:
+        st.warning("No names found in the selected sheets. Nothing to generate.")
+        st.stop()
 
-    df_participated, participated_sheet = read_sheet_safely(uploaded_file, "PARTICIPATED", dtype=object)
-    try:
-        uploaded_file.seek(0)
-    except Exception:
-        pass
+    total = len(tasks)
+    overall_progress = st.progress(0)
+    overall_status = st.empty()
 
-    # Example: read 'SMARTEDGE' sheet where name might be 'SmartEdge' or user defined
-    df_smartedge, smartedge_sheet = read_sheet_safely(uploaded_file, "SMARTEDGE", dtype=object)
+    # create per-group placeholders for subtotals
+    group_done = {g: 0 for g in group_counts}
+    group_status_placeholders = {}
+    for g in group_counts:
+        if group_counts[g] > 0:
+            group_status_placeholders[g] = st.empty()
 
-    st.subheader("Read results")
-    st.write(f"QUALIFIED sheet used: {qualified_sheet}")
-    st.write(f"PARTICIPATED sheet used: {participated_sheet}")
-    st.write(f"SMARTEDGE sheet used: {smartedge_sheet}")
+    zip_buf = io.BytesIO()
+    with ZipFile(zip_buf, "w") as zf:
+        for idx, (group, name) in enumerate(tasks, start=1):
+            # Update status lines: group subtotals + overall
+            group_done[group] += 1
+            overall_status.info(f"Overall: {idx}/{total} — Generating {group} / {name}")
 
-    if not df_qualified.empty:
-        st.markdown("**QUALIFIED preview**")
-        st.dataframe(df_qualified.head())
-    else:
-        st.info("QUALIFIED sheet not found or empty.")
+            # Update each group's subtotal (only for groups that have items)
+            for g, placeholder in group_status_placeholders.items():
+                done = group_done.get(g, 0)
+                total_g = group_counts.get(g, 0)
+                placeholder.text(f"{g.replace('_',' ')}: {done}/{total_g} done")
 
-    if not df_participated.empty:
-        st.markdown("**PARTICIPATED preview**")
-        st.dataframe(df_participated.head())
-    else:
-        st.info("PARTICIPATED sheet not found or empty.")
+            # small sleep for UI responsiveness (you can reduce if slow)
+            time.sleep(0.01)
 
-    # Continue with certificate generation logic below — placeholder
-    st.success("Sheets loaded (if present). You can now continue to certificate generation steps.")
+            # choose template bytes
+            try:
+                if group == "QUALIFIED":
+                    tpl_bytes = qualified_pdf_file.read()
+                elif group == "PARTICIPATED":
+                    tpl_bytes = participated_pdf_file.read()
+                else:  # SMART_EDGE_WORKSHOP
+                    tpl_bytes = smartedge_pdf_file.read()
 
-# --------------------------
-# NOTES for maintainers (printed to logs)
-# --------------------------
-st.write("\n---\nMaintainer notes:\n- This app now looks for sheet names case-insensitively.\n- If you still see Worksheet not found errors, ensure the uploaded Excel actually contains the exact sheet name (QUALIFIED / PARTICIPATED) ignoring case and whitespace.")
+                # rasterize generation (robust)
+                img = draw_name_on_template(tpl_bytes, name, X_CM, Y_CM, BASE_FONT_PT, DEFAULT_MAX_WIDTH_CM)
+                pdf_bytes = image_to_pdf_bytes(img)
+                safe_name = name.replace("/", "_").replace("\\", "_")
+                zf.writestr(f"{group}/{safe_name}.pdf", pdf_bytes)
+            except Exception as e:
+                # write error file into zip and continue
+                err_msg = f"Failed to generate for {name}: {e}"
+                safe_name = str(name).replace("/", "_").replace("\\", "_")
+                zf.writestr(f"{group}/{safe_name}_ERROR.txt", err_msg.encode("utf-8"))
 
-# End of file
+            # update overall progress
+            overall_progress.progress(idx / total)
+
+        overall_status.success("All items processed. Finalizing ZIP...")
+
+    # show balloons + success + download
+    st.balloons()
+    st.success(f"Done — {total} certificates generated (see ZIP).")
+    zip_buf.seek(0)
+    st.download_button("Download certificates ZIP", data=zip_buf.getvalue(), file_name="Certificates.zip", mime="application/zip")
