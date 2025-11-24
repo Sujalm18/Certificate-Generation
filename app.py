@@ -9,42 +9,41 @@ from zipfile import ZipFile
 import random
 import time
 
-# -------------------------------------------
+# --------------------------
 # PAGE CONFIG
-# -------------------------------------------
+# --------------------------
 st.set_page_config(page_title="Certificate Generator", layout="wide")
 
-# -------------------------------------------
-# SITE LOGO (Only shown on Streamlit website)
-# -------------------------------------------
-DEFAULT_LOGO_IN_REPO = Path("logo.png")
+# --------------------------
+# SITE LOGO (Streamlit UI only — NOT inserted into PDFs)
+# --------------------------
+# Path to your logo inside the repo
+logo_path = Path("logo.png")   # Make sure the file name matches EXACTLY
 
-# This is the uploaded logo path Streamlit gave you
-FALLBACK_LOGO_PATH = "/mnt/data/b486af50-9967-4ea2-b5fa-0f42685901de.png"
-
-logo_to_use = None
-if DEFAULT_LOGO_IN_REPO.exists():
-    logo_to_use = DEFAULT_LOGO_IN_REPO.as_posix()
+if logo_path.exists():
+    try:
+        img = Image.open(logo_path)
+        st.markdown(
+            """
+            <div style='text-align:center; margin-bottom:-10px; margin-top:-40px;'>
+            """,
+            unsafe_allow_html=True
+        )
+        st.image(img, width=120, use_column_width=False)
+        st.markdown("</div>", unsafe_allow_html=True)
+    except Exception as e:
+        st.warning(f"Logo found but could not be loaded: {e}")
 else:
-    logo_to_use = FALLBACK_LOGO_PATH  # Use fallback if repo root logo is missing
+    st.info("Logo not found in repository (looking for logo.png). Add it to the root folder.")
 
-if logo_to_use:
-    st.markdown(
-        f"""
-        <div style="text-align:center; margin-top:-18px; margin-bottom:2px;">
-            <img src="{logo_to_use}" style="width:120px; height:auto;" />
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-# -------------------------------------------
-# PAGE TITLE
-# -------------------------------------------
+# --------------------------
+# TITLE
+# --------------------------
 st.markdown(
-    "<h1 style='text-align:center;'>Certificate Generator — QUALIFIED, PARTICIPATED & SMART EDGE WORKSHOP</h1>",
+    "<h1 style='text-align:center;'>PHN Certificate Generator</h1>",
     unsafe_allow_html=True
 )
+
 
 # -------------------------------------------
 # CONSTANTS
