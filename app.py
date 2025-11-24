@@ -16,18 +16,23 @@ st.set_page_config(page_title="Certificate Generator", layout="wide")
 
 # SMALL CENTERED LOGO (Streamlit only)
 # --------------------------
-from PIL import Image
 
 logo_path = Path("logo.png")
 
 if logo_path.exists():
     try:
         img = Image.open(logo_path)
-        st.image(img, width=60)   # <-- SUPER SMALL (45px)
-    except:
-        st.warning("Logo found but could not be loaded.")
+
+        # Create 3 equal columns and put the logo in the center one
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.image(img, width=60)   # adjust size here (40–70 recommended)
+
+    except Exception as e:
+        st.warning(f"Logo found but could not be displayed: {e}")
 else:
-    st.info("logo.png not found. Add it to the root directory.")
+    st.info("logo.png not found in repository.")
+
 
 # --------------------------
 # TITLE
