@@ -18,23 +18,30 @@ st.set_page_config(page_title="Certificate Generator", layout="wide")
 # SITE LOGO (Streamlit UI only — NOT inserted into PDFs)
 # --------------------------
 # Path to your logo inside the repo
-logo_path = Path("logo.png")   # Make sure the file name matches EXACTLY
+# --------------------------
+# SITE LOGO (UI only — not added to PDFs)
+# --------------------------
+logo_path = Path("logo.png")
 
 if logo_path.exists():
     try:
         img = Image.open(logo_path)
+
+        # Force a small size (70px width)
         st.markdown(
             """
-            <div style='text-align:center; margin-bottom:-10px; margin-top:-40px;'>
+            <div style='text-align:center; margin-top:-35px; margin-bottom:-15px;'>
             """,
             unsafe_allow_html=True
         )
-        st.image(img, width=60, use_column_width=False)
+        st.image(img, width=70, use_column_width=False)   # <-- SMALL LOGO
         st.markdown("</div>", unsafe_allow_html=True)
+
     except Exception as e:
-        st.warning(f"Logo found but could not be loaded: {e}")
+        st.warning(f"Logo found but could not be displayed: {e}")
 else:
-    st.info("Logo not found in repository (looking for logo.png). Add it to the root folder.")
+    st.info("logo.png not found in repo — please add it to the root directory.")
+
 
 # --------------------------
 # TITLE
