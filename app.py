@@ -34,7 +34,7 @@ if logo_path.exists():
             """,
             unsafe_allow_html=True
         )
-        st.image(img, width=70, use_column_width=False)   # <-- SMALL LOGO
+        st.image(img, width=20, use_column_width=False)   # <-- SMALL LOGO
         st.markdown("</div>", unsafe_allow_html=True)
 
     except Exception as e:
