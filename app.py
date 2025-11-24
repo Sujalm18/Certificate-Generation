@@ -10,7 +10,7 @@ import random
 import time
 
 # --------------------------
-# PAGE CONFIG & LOGO (SITE-ONLY)
+# PAGE CONFIG & SITE LOGO (site-only)
 # --------------------------
 st.set_page_config(page_title="Certificate Generator", layout="wide")
 logo_path = Path("logo.png")
@@ -103,20 +103,17 @@ def draw_name_on_template(template_bytes, name, x_cm, y_cm, font_size_pt, max_wi
 
     max_w_px = cm_to_px(max_width_cm)
     if text_w > max_w_px:
-        # scale font size down
-        if hasattr(font, "path"):
-            scale = max_w_px / text_w
-            new_font_px = max(8, int(font.size * scale))
-            try:
+        # scale font size down (if truetype available)
+        try:
+            if hasattr(font, "path"):
+                scale = max_w_px / text_w
+                new_font_px = max(8, int(font.size * scale))
                 font = ImageFont.truetype(str(FONT_PATH), new_font_px)
-            except Exception:
-                font = ImageFont.load_default()
-            try:
                 bbox = draw.textbbox((0, 0), name, font=font)
                 text_w = bbox[2] - bbox[0]
                 text_h = bbox[3] - bbox[1]
-            except Exception:
-                text_w, text_h = draw.textsize(name, font=font)
+        except Exception:
+            pass
 
     draw_x = int(round(x_px - text_w / 2.0))
     draw_y = int(round(y_px - text_h / 2.0))
@@ -136,7 +133,7 @@ def image_to_pdf_bytes(img: Image.Image):
     return out.getvalue()
 
 # --------------------------
-# UI: Uploads & Controls
+# UI: Uploads & Settings
 # --------------------------
 st.header("1) Upload files (Excel must contain sheets QUALIFIED, PARTICIPATED and Smart Edge sheet)")
 
@@ -164,7 +161,7 @@ BASE_FONT_PT = st.sidebar.number_input("Base font size (pt)", value=DEFAULT_FONT
 MAX_WIDTH_CM = st.sidebar.number_input("Max name width (cm)", value=DEFAULT_MAX_WIDTH_CM, step=0.5)
 
 # --------------------------
-# CHECKBOXES & CENTERED CAPTION
+# CHECKBOXES & centered caption
 # --------------------------
 st.markdown("### 3) Generate and download final ZIP")
 st.write("Export options:")
@@ -185,7 +182,7 @@ st.markdown(
 )
 
 # --------------------------
-# GENERATION WITH PROGRESS (per-group subtotals + overall)
+# GENERATION: per-group small progress bars + overall
 # --------------------------
 if st.button("Generate certificates ZIP"):
 
@@ -212,26 +209,38 @@ if st.button("Generate certificates ZIP"):
             smartedge_sheet = s
             break
 
-    # template checks
-    if gen_qualified and qualified_pdf_file is None:
-        st.error(random.choice(MISSING_TEMPLATE_ERRORS) + " (Qualified)")
-        st.stop()
-    if gen_participated and participated_pdf_file is None:
-        st.error(random.choice(MISSING_TEMPLATE_ERRORS) + " (Participated)")
-        st.stop()
-    if gen_smartedge and smartedge_pdf_file is None:
-        st.error(random.choice(MISSING_TEMPLATE_ERRORS) + " (Smart Edge)")
-        st.stop()
-    if gen_smartedge and smartedge_sheet is None:
-        st.error(random.choice(MISSING_SHEET_ERRORS) + " (Smart Edge sheet must be one of: Names / Name / Smart Edge / Certificates)")
-        st.stop()
+    # template checks and read template bytes once to avoid re-reading streams
+    qual_bytes = None
+    part_bytes = None
+    smart_bytes = None
 
-    # read dataframes (if sheet exists)
+    if gen_qualified:
+        if qualified_pdf_file is None:
+            st.error(random.choice(MISSING_TEMPLATE_ERRORS) + " (Qualified)")
+            st.stop()
+        qual_bytes = qualified_pdf_file.read()
+
+    if gen_participated:
+        if participated_pdf_file is None:
+            st.error(random.choice(MISSING_TEMPLATE_ERRORS) + " (Participated)")
+            st.stop()
+        part_bytes = participated_pdf_file.read()
+
+    if gen_smartedge:
+        if smartedge_pdf_file is None:
+            st.error(random.choice(MISSING_TEMPLATE_ERRORS) + " (Smart Edge)")
+            st.stop()
+        if smartedge_sheet is None:
+            st.error(random.choice(MISSING_SHEET_ERRORS) + " (Smart Edge sheet must be one of: Names / Name / Smart Edge / Certificates)")
+            st.stop()
+        smart_bytes = smartedge_pdf_file.read()
+
+    # read dataframes (if sheets exist)
     df_q = pd.read_excel(excel_file, sheet_name="QUALIFIED", dtype=object) if ("QUALIFIED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
     df_p = pd.read_excel(excel_file, sheet_name="PARTICIPATED", dtype=object) if ("PARTICIPATED" in [s.upper() for s in xls.sheet_names]) else pd.DataFrame()
     df_s = pd.read_excel(excel_file, sheet_name=smartedge_sheet, dtype=object) if smartedge_sheet else pd.DataFrame()
 
-    # build tasks per group
+    # build tasks and group counts
     tasks = []
     group_counts = {"QUALIFIED": 0, "PARTICIPATED": 0, "SMART_EDGE_WORKSHOP": 0}
 
@@ -258,42 +267,49 @@ if st.button("Generate certificates ZIP"):
     overall_progress = st.progress(0)
     overall_status = st.empty()
 
-    # create per-group placeholders for subtotals
+    # create per-group placeholders: text + small progress bar
     group_done = {g: 0 for g in group_counts}
     group_status_placeholders = {}
-    for g in group_counts:
-        if group_counts[g] > 0:
+    group_progress_bars = {}
+    for g, cnt in group_counts.items():
+        if cnt > 0:
             group_status_placeholders[g] = st.empty()
+            group_progress_bars[g] = st.progress(0)
 
     zip_buf = io.BytesIO()
     with ZipFile(zip_buf, "w") as zf:
         for idx, (group, name) in enumerate(tasks, start=1):
-            # Update status lines: group subtotals + overall
+            # update counters
             group_done[group] += 1
+
+            # overall status
             overall_status.info(f"Overall: {idx}/{total} — Generating {group} / {name}")
 
-            # Update each group's subtotal (only for groups that have items)
-            for g, placeholder in group_status_placeholders.items():
+            # update per-group text and small progress bar (if exists)
+            for g in group_status_placeholders:
                 done = group_done.get(g, 0)
                 total_g = group_counts.get(g, 0)
-                placeholder.text(f"{g.replace('_',' ')}: {done}/{total_g} done")
+                group_status_placeholders[g].text(f"{g.replace('_',' ')}: {done}/{total_g} done")
+                # update small progress bar for the group
+                if total_g > 0:
+                    group_progress_bars[g].progress(done / total_g)
 
-            # small sleep for UI responsiveness (you can reduce if slow)
+            # slight pause so UI updates smoothly on small batches
             time.sleep(0.01)
 
-            # choose template bytes
+            # pick template bytes
             try:
                 if group == "QUALIFIED":
-                    tpl_bytes = qualified_pdf_file.read()
+                    tpl_bytes = qual_bytes
                 elif group == "PARTICIPATED":
-                    tpl_bytes = participated_pdf_file.read()
-                else:  # SMART_EDGE_WORKSHOP
-                    tpl_bytes = smartedge_pdf_file.read()
+                    tpl_bytes = part_bytes
+                else:
+                    tpl_bytes = smart_bytes
 
-                # rasterize generation (robust)
-                img = draw_name_on_template(tpl_bytes, name, X_CM, Y_CM, BASE_FONT_PT, DEFAULT_MAX_WIDTH_CM)
+                # rasterize: draw on image, then convert to PDF bytes
+                img = draw_name_on_template(tpl_bytes, name, X_CM, Y_CM, BASE_FONT_PT, MAX_WIDTH_CM)
                 pdf_bytes = image_to_pdf_bytes(img)
-                safe_name = name.replace("/", "_").replace("\\", "_")
+                safe_name = str(name).replace("/", "_").replace("\\", "_")
                 zf.writestr(f"{group}/{safe_name}.pdf", pdf_bytes)
             except Exception as e:
                 # write error file into zip and continue
@@ -301,13 +317,13 @@ if st.button("Generate certificates ZIP"):
                 safe_name = str(name).replace("/", "_").replace("\\", "_")
                 zf.writestr(f"{group}/{safe_name}_ERROR.txt", err_msg.encode("utf-8"))
 
-            # update overall progress
             overall_progress.progress(idx / total)
 
         overall_status.success("All items processed. Finalizing ZIP...")
 
-    # show balloons + success + download
+    # finish
     st.balloons()
-    st.success(f"Done — {total} certificates generated (see ZIP).")
+    st.success(f"Done — {total} certificates generated (errors, if any, are in ZIP).")
     zip_buf.seek(0)
     st.download_button("Download certificates ZIP", data=zip_buf.getvalue(), file_name="Certificates.zip", mime="application/zip")
+
